@@ -54,7 +54,7 @@ export const WorkspaceRequest = Schema.Struct({
   id: Text,
   itemId: Text,
   threadId: ThreadId,
-  kind: RequestKind,
+  kind: Schema.Union([Schema.Literal("attention"), RequestKind]),
   prompt: Text,
   context: Schema.String,
   choices: Schema.Array(Text),
@@ -136,6 +136,19 @@ export const WorkspaceAgentCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("artifact"), itemId: Text, label: Text, url: Text }),
   Schema.Struct({ type: Schema.Literal("decide"), itemId: Text, text: Text, author: Text }),
   Schema.Struct({
+    type: Schema.Literal("report"),
+    itemId: Text,
+    threadId: ThreadId,
+    text: Text,
+    stage: Schema.optional(wireStage),
+    needsAttention: Schema.optional(Schema.Boolean),
+    reportedAt: Schema.optional(IsoDateTime),
+    format: Schema.optional(Schema.Literals(["progress", "legacy"])),
+  }),
+]);
+export const WorkspaceCommand = Schema.Union([
+  WorkspaceAgentCommand,
+  Schema.Struct({
     type: Schema.Literal("request"),
     itemId: Text,
     requestId: Text,
@@ -145,18 +158,6 @@ export const WorkspaceAgentCommand = Schema.Union([
     context: Schema.optional(Schema.String),
     choices: Schema.optional(Schema.Array(Text)),
   }),
-  Schema.Struct({
-    type: Schema.Literal("report"),
-    itemId: Text,
-    threadId: ThreadId,
-    text: Text,
-    stage: Schema.optional(wireStage),
-    reportedAt: Schema.optional(IsoDateTime),
-    format: Schema.optional(Schema.Literals(["progress", "legacy"])),
-  }),
-]);
-export const WorkspaceCommand = Schema.Union([
-  WorkspaceAgentCommand,
   Schema.Struct({ type: Schema.Literal("orchestrator"), threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("closeOrchestrator"), threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("respond"), requestId: Text, response: Text }),

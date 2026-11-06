@@ -91,9 +91,22 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     Stream.unwrap(
       Effect.gen(function* () {
         const subscription = yield* PubSub.subscribe(changes);
+        const afterSequence = yield* eventSink
+          .latestSequence()
+          .pipe(Effect.mapError(workspaceError));
+        const replies = eventSink.stream({ afterSequence, eventType: "message.updated" }).pipe(
+          Stream.filter(
+            ({ event }) =>
+              event.type === "message.updated" &&
+              event.payload.role === "user" &&
+              event.payload.createdBy === "user" &&
+              (event.payload.creationSource === "web" || event.payload.creationSource === "mobile"),
+          ),
+          Stream.mapError(workspaceError),
+        );
         return Stream.concat(
           Stream.fromEffect(get()),
-          Stream.fromSubscription(subscription).pipe(Stream.mapEffect(get)),
+          Stream.merge(Stream.fromSubscription(subscription), replies).pipe(Stream.mapEffect(get)),
         );
       }),
     );
@@ -386,12 +399,37 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         const reportedAt = cmd.reportedAt ?? timestamp;
         if (!Number.isFinite(Date.parse(reportedAt)))
           return yield* fail("Use a valid report timestamp.");
-        if (cmd.stage === "complete") {
+        if (cmd.stage === "complete" || cmd.needsAttention === false) {
           yield* sql`UPDATE helm_requests
             SET body=json_set(body,'$.status','obsolete','$.resolvedAt',${timestamp},
-              '$.response','The worker marked this work complete.')
+              '$.response',${cmd.stage === "complete" ? "The worker marked this work complete." : "The worker resumed."})
             WHERE item_id=${item.id} AND json_extract(body,'$.threadId')=${cmd.threadId}
               AND json_extract(body,'$.status')='open'`;
+        }
+        if (cmd.needsAttention === true && cmd.stage !== "complete") {
+          const [existing] = yield* sql<{ body: string }>`SELECT body FROM helm_requests
+            WHERE item_id=${item.id} AND json_extract(body,'$.threadId')=${cmd.threadId}
+              AND json_extract(body,'$.kind')='attention' AND json_extract(body,'$.status')='open'`;
+          if (existing) {
+            const attention = yield* decodeRequest(existing.body);
+            yield* saveRequest({ ...attention, prompt: cmd.text }, null);
+          } else {
+            const attention: WorkspaceRequest = {
+              id: yield* random.uuidV4(),
+              itemId: item.id,
+              threadId: cmd.threadId,
+              kind: "attention",
+              prompt: cmd.text,
+              context: "",
+              choices: [],
+              status: "open",
+              response: null,
+              createdAt: timestamp,
+              resolvedAt: null,
+            };
+            yield* sql`INSERT INTO helm_requests(id,item_id,body)
+              VALUES (${attention.id},${item.id},${yield* encodeRequest(attention)})`;
+          }
         }
         // Workers and imported files have independent clocks. Arrival at the owning server orders reports.
         item = {

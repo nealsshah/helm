@@ -6,7 +6,6 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   WorkspaceAgentCommand,
-  WorkspaceRequest,
   WorkspaceSnapshot,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -28,7 +27,7 @@ const shared = {
 
 const read = Tool.make("t3_workspace_read", {
   ...shared,
-  description: "Read the work board, decisions and attention requests. Filter by itemId.",
+  description: "Read the work board, decisions and sessions needing attention. Filter by itemId.",
   parameters: Schema.Struct({ itemId: Schema.optional(TrimmedNonEmptyString) }),
   success: Schema.Struct({
     ...WorkspaceSnapshot.fields,
@@ -57,11 +56,10 @@ const read = Tool.make("t3_workspace_read", {
 const update = Tool.make("t3_workspace_update", {
   ...shared,
   description:
-    "Report progress or request human input on your assigned item using callerThreadId. Set report.stage as work changes: planning for scope, building for changes, qa for checks or review, complete for verified delivery. Open a request when you need a person. Every request needs a unique requestId, including the first attempt. Reuse it on retry. The workspace orchestrator can also manage work, sessions, dependencies and milestones.",
+    "Report progress on your assigned item using callerThreadId. Set report.stage as work changes: planning for scope, building for changes, qa for checks or review, complete for verified delivery. To bring your session to Needs me for any human action, set report.needsAttention to true, summarize the reason in text and explain the next step in chat. A direct chat reply clears attention. Set needsAttention to false if you resume independently. The workspace orchestrator can also manage work, sessions, dependencies and milestones.",
   parameters: Schema.Struct({ command: WorkspaceAgentCommand }),
   success: Schema.Struct({
     itemId: TrimmedNonEmptyString,
-    request: Schema.optional(WorkspaceRequest),
   }),
 }).annotate(Tool.Destructive, false);
 

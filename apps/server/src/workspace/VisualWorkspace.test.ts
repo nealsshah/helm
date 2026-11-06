@@ -430,3 +430,48 @@ it.effect(
       }
     }).pipe(Effect.provide(testLayer)),
 );
+
+it.effect(
+  "a direct chat reply clears only its session's open attention without a second delivery",
+  () =>
+    Effect.gen(function* () {
+      const workspace = yield* fixture;
+      const threads = yield* Threads.ThreadManagementService;
+      const signal = yield* decodeCommand({
+        type: "report",
+        itemId: "build",
+        threadId: worker,
+        text: "Connect the phone.",
+        needsAttention: true,
+      });
+      yield* workspace.command(signal, { threadId: worker });
+      const send = (threadId: ThreadId, id: string, createdBy: "user" | "agent") =>
+        threads.sendToThread({
+          projectId,
+          threadId,
+          commandId: CommandId.make(id),
+          messageId: MessageId.make(id),
+          text: "Connected.",
+          attachments: [],
+          mode: "auto",
+          createdBy,
+          creationSource: createdBy === "user" ? "web" : "mcp",
+        });
+      yield* send(primary, "elsewhere", "user");
+      yield* send(worker, "agent-update", "agent");
+      const pending = (yield* workspace.get()).requests;
+      expect(pending.map((entry) => [entry.kind, entry.status])).toEqual([
+        ["question", "open"],
+        ["attention", "open"],
+      ]);
+      yield* send(worker, "direct", "user");
+      const snapshot = yield* workspace.get();
+      expect(snapshot.requests.map((entry) => entry.status)).toEqual(["accepted", "accepted"]);
+      expect(snapshot.items[0]?.stage).toBe("planning");
+      const t3 = yield* Orchestrator.OrchestratorV2;
+      expect((yield* t3.getThreadRecords(worker, ["messages"])).messages.map((m) => m.id)).toEqual([
+        "agent-update",
+        "direct",
+      ]);
+    }).pipe(Effect.provide(testLayer)),
+);

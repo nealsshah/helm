@@ -96,7 +96,7 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
     Effect.gen(function* () {
       const caller = yield* readCaller();
       const actor = caller.scope.thread;
-      if (actor === undefined || (command.type !== "request" && command.type !== "report")) {
+      if (actor === undefined || command.type !== "report") {
         if (actor?.subagent) {
           return yield* new OrchestratorMcpFailure({
             code: "capability_denied",
@@ -109,13 +109,7 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
         );
       }
       const workspace = yield* Workspace.VisualWorkspace;
-      const snapshot = yield* workspace
-        .command(command, actor)
-        .pipe(Effect.mapError(workspaceFailure));
-      if (command.type === "request") {
-        const request = snapshot.requests.find((entry) => entry.id === command.requestId);
-        return { itemId: command.itemId, request };
-      }
+      yield* workspace.command(command, actor).pipe(Effect.mapError(workspaceFailure));
       return { itemId: command.itemId };
     }),
   ),
