@@ -128,6 +128,6 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .toBeVisible();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");
   await expect
-    .element(board.getByRole("button", { name: /Approval.*Thread archived-worker/ }))
+    .element(board.getByRole("button", { name: /Review approval.*Thread archived-worker/ }))
     .toBeVisible();
 });

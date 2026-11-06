@@ -223,6 +223,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-skeleton: skeleton 2.4s infinite;
   /* Duty-cycled indicator animations: long holds with stepped ramps, so the
      compositor updates discrete frames instead of every vsync. */
+  --animate-attention: attention 2.5s ease-in-out 2;
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   /* Stash pulses hold a highlight for 1.2s; the row then eases back over 200ms, the count snaps.
@@ -329,6 +330,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       color: var(--color-primary);
     }
   }
+  @keyframes attention {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
   @keyframes status-pulse {
     0%,
     40% {

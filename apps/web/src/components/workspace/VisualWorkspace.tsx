@@ -118,6 +118,13 @@ function WorkCard({
   );
 }
 
+const requestAction: Record<string, string> = {
+  question: "Answer question",
+  approval: "Review approval",
+  review: "Review request",
+  error: "Inspect issue",
+};
+
 function RequestRow({
   entry,
   source,
@@ -135,24 +142,20 @@ function RequestRow({
       onClick={open}
       aria-pressed={selected}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "group grid w-full min-w-0 gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         selected && "bg-muted",
       )}
     >
-      <span className="shrink-0 rounded bg-warning-surface px-1.5 py-0.5 text-2xs font-medium capitalize text-warning-foreground">
-        {entry.kind}
+      <span className="line-clamp-2 break-words text-xs leading-relaxed">{entry.prompt}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-2xs">
+        <span className="shrink-0 font-semibold text-warning-foreground group-hover:underline">
+          {entry.request?.status === "delivering"
+            ? "Delivery pending"
+            : (requestAction[entry.kind.toLowerCase()] ?? "Open request")}
+        </span>
+        <ArrowUpRightIcon aria-hidden="true" className="size-3 shrink-0 text-warning-foreground" />
+        {source && <span className="ml-auto truncate text-muted-foreground">{source}</span>}
       </span>
-      <span className="min-w-0 flex-1 text-xs">
-        <span className="line-clamp-2 break-words">{entry.prompt}</span>
-        {(source || entry.request?.status === "delivering") && (
-          <span className="block truncate text-2xs text-muted-foreground">
-            {[source, entry.request?.status === "delivering" ? "Delivery pending" : null]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        )}
-      </span>
-      <ArrowUpRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
     </button>
   );
 }
@@ -163,7 +166,6 @@ export function VisualWorkspace() {
   const state = useWorkspaceState();
   const [target, setTarget] = useWorkspaceTabValue("selected", null, Target);
   const [form, setForm] = useState<"new" | "global" | null>(null);
-  const [completed, setCompleted] = useWorkspaceTabValue("show-completed", true, Schema.Boolean);
   const [storedEnvironment, setEnvironment] = useWorkspaceTabValue(
     "environment",
     "",
@@ -303,17 +305,9 @@ export function VisualWorkspace() {
                   ))}
                 </select>
               )}
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={completed}
-                  onChange={(e) => setCompleted(e.target.checked)}
-                />
-                Show done
-              </label>
             </div>
             {queue.size > 0 && (
-              <ul className="min-h-0 divide-y divide-border overflow-y-auto overscroll-contain border-t border-border">
+              <ul className="flex min-h-0 snap-x snap-proximity items-stretch gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 scroll-px-3">
                 {Array.from(queue, ([key, entries]) => {
                   const first = entries[0]!;
                   const { environmentId, itemId, threadId } = first;
@@ -331,11 +325,12 @@ export function VisualWorkspace() {
                   return (
                     <li
                       key={key}
-                      className="grid items-start gap-x-3 px-3 py-1 @md:grid-cols-[minmax(8rem,30%)_minmax(0,1fr)]"
+                      className="flex min-h-0 w-72 max-w-[88%] shrink-0 snap-start flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs"
                     >
                       <button
                         type="button"
-                        className="min-w-0 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        aria-label={title}
+                        className="group min-w-0 shrink-0 px-3 pt-2.5 pb-2 text-left hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         onClick={() => {
                           if (linked) openItem(linked);
                           else {
@@ -344,14 +339,19 @@ export function VisualWorkspace() {
                           }
                         }}
                       >
-                        <span className="line-clamp-2 break-words">{title}</span>
-                        {hostLabel && (
-                          <span className="block truncate text-2xs font-normal text-muted-foreground">
-                            {hostLabel}
-                          </span>
-                        )}
+                        <span className="mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
+                          <span
+                            aria-hidden="true"
+                            className="size-1.5 shrink-0 rounded-full bg-warning/75 motion-safe:animate-attention"
+                          />
+                          {linked ? stageLabel[linked.item.stage] : "Session"}
+                          {hostLabel && <span className="truncate">· {hostLabel}</span>}
+                        </span>
+                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">
+                          {title}
+                        </span>
                       </button>
-                      <div className="min-w-0">
+                      <div className="mx-1 mb-1 min-h-0 min-w-0 flex-1 divide-y divide-border/60 overflow-y-auto overscroll-y-contain border-t border-border/70">
                         {entries.map((entry) => {
                           const source = state.shells.find(
                             (shell) =>
@@ -412,53 +412,48 @@ export function VisualWorkspace() {
             </div>
           )}
           <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
-            {stages
-              .filter((stage) => stage !== "complete" || completed)
-              .map((stage) => {
-                const entries = cards.filter((card) => card.item.stage === stage);
-                return (
-                  <section
-                    aria-label={stageLabel[stage]}
-                    key={stage}
-                    className={cn(
-                      "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
-                      entries.length ? "min-w-44" : "min-w-24",
-                    )}
-                  >
-                    <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
-                      <span>{stageLabel[stage]}</span>
-                      <span className="tabular-nums text-muted-foreground">{entries.length}</span>
-                    </h2>
-                    <div className="grid gap-2">
-                      {entries.map((entry) => {
-                        const { environmentId, item } = entry;
-                        const host = hosts.find((entry) => entry.environmentId === environmentId);
-                        return (
-                          <WorkCard
-                            key={JSON.stringify([environmentId, item.id])}
-                            entry={entry}
-                            dependencies={outstandingDependencies(
-                              item,
-                              host?.snapshot?.items ?? [],
-                            )}
-                            host={host?.label ?? environmentId}
-                            connected={host?.connected ?? false}
-                            sessions={state.shells.filter(
-                              (shell) =>
-                                shell.environmentId === environmentId &&
-                                itemHasThread(item, shell.id),
-                            )}
-                            selected={
-                              target?.itemId === item.id && target.environmentId === environmentId
-                            }
-                            onClick={() => openItem(entry)}
-                          />
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              })}
+            {stages.map((stage) => {
+              const entries = cards.filter((card) => card.item.stage === stage);
+              return (
+                <section
+                  aria-label={stageLabel[stage]}
+                  key={stage}
+                  className={cn(
+                    "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
+                    entries.length ? "min-w-44" : "min-w-24",
+                  )}
+                >
+                  <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
+                    <span>{stageLabel[stage]}</span>
+                    <span className="tabular-nums text-muted-foreground">{entries.length}</span>
+                  </h2>
+                  <div className="grid gap-2">
+                    {entries.map((entry) => {
+                      const { environmentId, item } = entry;
+                      const host = hosts.find((entry) => entry.environmentId === environmentId);
+                      return (
+                        <WorkCard
+                          key={JSON.stringify([environmentId, item.id])}
+                          entry={entry}
+                          dependencies={outstandingDependencies(item, host?.snapshot?.items ?? [])}
+                          host={host?.label ?? environmentId}
+                          connected={host?.connected ?? false}
+                          sessions={state.shells.filter(
+                            (shell) =>
+                              shell.environmentId === environmentId &&
+                              itemHasThread(item, shell.id),
+                          )}
+                          selected={
+                            target?.itemId === item.id && target.environmentId === environmentId
+                          }
+                          onClick={() => openItem(entry)}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         </section>
         {form ? (
