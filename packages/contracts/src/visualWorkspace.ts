@@ -71,6 +71,42 @@ export const WorkspaceSnapshot = Schema.Struct({
   requests: Schema.Array(WorkspaceRequest),
 });
 export type WorkspaceSnapshot = typeof WorkspaceSnapshot.Type;
+const workspaceSnapshotWire = Schema.Struct({
+  ...WorkspaceSnapshot.fields,
+  orchestratorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  orchestratorThreadIds: Schema.optional(Schema.Array(ThreadId)),
+  sessionAttention: Schema.optional(Schema.Array(WorkspaceRequest)),
+});
+const legacyRequestKinds: ReadonlySet<string> = new Set(["question", "review", "error"]);
+
+// Older clients require a single orchestrator and reject unfamiliar request kinds.
+export const WorkspaceSnapshotRpc = workspaceSnapshotWire.pipe(
+  Schema.decodeTo(
+    Schema.toType(WorkspaceSnapshot),
+    SchemaTransformation.transform<WorkspaceSnapshot, typeof workspaceSnapshotWire.Type>({
+      decode: ({
+        orchestratorThreadIds,
+        orchestratorThreadId,
+        sessionAttention,
+        requests,
+        items,
+      }) => ({
+        orchestratorThreadIds:
+          orchestratorThreadIds ?? (orchestratorThreadId ? [orchestratorThreadId] : []),
+        requests: sessionAttention?.length ? [...requests, ...sessionAttention] : requests,
+        items,
+      }),
+      encode: (snapshot) => ({
+        ...snapshot,
+        orchestratorThreadId: snapshot.orchestratorThreadIds.at(-1) ?? null,
+        requests: snapshot.requests.filter((request) => legacyRequestKinds.has(request.kind)),
+        sessionAttention: snapshot.requests.filter(
+          (request) => !legacyRequestKinds.has(request.kind),
+        ),
+      }),
+    }),
+  ),
+);
 export const WorkspaceAgentCommand = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("create"),

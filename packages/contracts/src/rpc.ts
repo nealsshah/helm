@@ -35,7 +35,7 @@ import {
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
-import { WorkspaceCommand, WorkspaceError, WorkspaceSnapshot } from "./visualWorkspace.ts";
+import { WorkspaceCommand, WorkspaceError, WorkspaceSnapshotRpc } from "./visualWorkspace.ts";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -1910,7 +1910,7 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
 });
 
 const workspaceRpc = {
-  success: WorkspaceSnapshot,
+  success: WorkspaceSnapshotRpc,
   error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
 };
 const WsWorkspaceGetRpc = Rpc.make(WS_METHODS.workspaceGet, {
