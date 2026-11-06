@@ -41,44 +41,45 @@ export function WorkPanel({
     (entry) => entry.environmentId === environmentId && entry.id === threadId,
   );
   const detached = Boolean(item && !itemHasThread(item, threadId));
-  const currentOrchestrator = host?.snapshot?.orchestratorThreadId;
-  const changedOrchestrator = target.global && currentOrchestrator !== threadId;
-  const nextThread = detached
-    ? item?.primaryThreadId
-    : changedOrchestrator
-      ? currentOrchestrator
-      : threadId;
+  const nextThread = detached ? item?.primaryThreadId : threadId;
   const role = target.global
-    ? "Global direction"
+    ? "Orchestrator"
     : item?.primaryThreadId === threadId
       ? "Work conversation"
       : (item?.sessions.find((entry) => entry.threadId === threadId)?.role ?? "Session");
   const destination = `${role} · ${shell?.title ?? threadId}`;
   return (
     <aside
-      aria-label="Work panel"
-      className="flex min-h-0 min-w-0 flex-col border-l border-border bg-background"
+      role={target.global ? "tabpanel" : undefined}
+      aria-label={target.global ? destination : "Work panel"}
+      className={
+        target.global
+          ? "flex min-h-0 flex-1 flex-col"
+          : "flex min-h-0 min-w-0 flex-col border-l border-border bg-background"
+      }
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-muted-foreground">
-            {host?.label} ·{" "}
-            {target.global ? "Orchestrator" : item ? stageLabel[item.stage] : "Unlinked session"}
-          </p>
-          <h2 className="truncate font-semibold">{item?.title ?? shell?.title ?? threadId}</h2>
+      {!target.global && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs text-muted-foreground">
+              {host?.label} ·{" "}
+              {target.global ? "Orchestrator" : item ? stageLabel[item.stage] : "Unlinked session"}
+            </p>
+            <h2 className="truncate font-semibold">{item?.title ?? shell?.title ?? threadId}</h2>
+          </div>
+          <Link
+            to="/$environmentId/$threadId"
+            params={{ environmentId, threadId }}
+            className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
+            aria-label="Open full session"
+          >
+            <ExternalLinkIcon size={16} />
+          </Link>
+          <Button variant="ghost" size="icon-sm" aria-label="Close work panel" onClick={close}>
+            <XIcon />
+          </Button>
         </div>
-        <Link
-          to="/$environmentId/$threadId"
-          params={{ environmentId, threadId }}
-          className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
-          aria-label="Open full session"
-        >
-          <ExternalLinkIcon size={16} />
-        </Link>
-        <Button variant="ghost" size="icon-sm" aria-label="Close work panel" onClick={close}>
-          <XIcon />
-        </Button>
-      </div>
+      )}
       <div className="max-h-[45%] shrink-0 overflow-auto">
         {item && (
           <details
@@ -171,7 +172,7 @@ export function WorkPanel({
         data-side-chat-pane
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
-        {shell && !detached && !changedOrchestrator ? (
+        {shell && !detached ? (
           <BackgroundThreadContext value>
             <ComposerHandleContext value={null}>
               <ChatView
@@ -191,14 +192,8 @@ export function WorkPanel({
           </BackgroundThreadContext>
         ) : (
           <div className="p-4 text-sm text-muted-foreground">
-            {(detached || changedOrchestrator) && (
-              <p className="mb-2">
-                {target.global
-                  ? "The orchestrator destination changed."
-                  : "This worker is no longer linked to the work item."}
-              </p>
-            )}
-            {!nextThread || (!shell && !detached && !changedOrchestrator) ? (
+            {detached && <p className="mb-2">This worker is no longer linked to the work item.</p>}
+            {!nextThread || (!shell && !detached) ? (
               "Session unavailable. Its workspace records are retained here."
             ) : (
               <Button

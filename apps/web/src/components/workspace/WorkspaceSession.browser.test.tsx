@@ -89,7 +89,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   using _env = installFakeEnvironment([first, second, archivedWorker], {
     items,
     requests: [],
-    orchestratorThreadId: null,
+    orchestratorThreadIds: [first.id, second.id],
   });
   __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, onboardingCompletedAt: time });
   const ref = { environmentId: ENVIRONMENT_ID, threadId: first.id };
@@ -135,4 +135,9 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await expect
     .element(board.getByRole("button", { name: "Thread archived-worker", exact: true }))
     .toBeVisible();
+  await screen.getByRole("button", { name: "Orchestrator", exact: true }).click();
+  await screen.getByRole("tab", { name: first.title }).click();
+  await expect.element(editor).toHaveTextContent("Unsent shaping direction");
+  await screen.getByRole("tab", { name: second.title }).click();
+  await expect.element(editor).toHaveTextContent("Unsent implementation direction");
 });

@@ -61,7 +61,7 @@ const workspaceShellsAtom = Atom.make((get) => {
         ...item.sessions.map((s) => s.threadId),
       ]),
     );
-    if (snapshot.orchestratorThreadId) threadIds.add(snapshot.orchestratorThreadId);
+    for (const threadId of snapshot.orchestratorThreadIds) threadIds.add(threadId);
     for (const threadId of threadIds) {
       const ref = { environmentId, threadId },
         key = threadKey(ref);

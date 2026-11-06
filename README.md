@@ -1,6 +1,6 @@
 # Helm
 
-Helm is a personal fork of T3 Code for managing concurrent agent work. Open **Workspace** in the sidebar to see work by stage, answer requests, and return to a discussion.
+Helm is a personal fork of T3 Code for managing concurrent agent work. Open **Workspace** in the sidebar to see work by stage, see which sessions need you, and reply in their chats.
 
 ## Run Helm locally
 
@@ -22,7 +22,7 @@ pnpm install --frozen-lockfile
 T3CODE_DEV_SEED=0 pnpm dev --home-dir "$PWD/.t3"
 ```
 
-Open **Workspace** in the sidebar. Choose **New item** to give an existing conversation a title and stage. Choose **Global direction** to designate the conversation that coordinates work. To connect existing First Mate tasks or publish updates from workers, see [Direct work through the workspace](./docs/user/workspace-agents.md).
+Open **Workspace** in the sidebar. Choose **New item** to give an existing conversation a title and stage. Open **Orchestrator** to coordinate work. Use **+** above its chat to start another independent session. To connect existing First Mate tasks or publish updates from workers, see [Direct work through the workspace](./docs/user/workspace-agents.md).
 
 Helm tracks the [T3 Code Nightly release from November 5, 2026](https://github.com/pingdotgg/t3code/tree/8b570d282b5f50709185fbd26f8e36872ddafdeb). The distribution links below install upstream T3 Code.
 

@@ -337,7 +337,7 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
     }),
   );
 
-const emptyWorkspace: WorkspaceSnapshot = { orchestratorThreadId: null, items: [], requests: [] };
+const emptyWorkspace: WorkspaceSnapshot = { orchestratorThreadIds: [], items: [], requests: [] };
 let workspace = emptyWorkspace;
 
 const handlers: Record<string, (input: never) => unknown> = {

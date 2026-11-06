@@ -5,6 +5,7 @@ import { Columns3Icon, InboxIcon, MessageSquareIcon, PlusIcon, XIcon } from "luc
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
+import { OrchestratorPanel } from "./OrchestratorPanel";
 import { WorkPanel } from "./WorkPanel";
 import { PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
 import * as Schema from "effect/Schema";
@@ -116,7 +117,7 @@ const Target = Schema.NullOr(PanelTarget);
 export function VisualWorkspace() {
   const state = useWorkspaceState();
   const [target, setTarget] = useWorkspaceTabValue("selected", null, Target);
-  const [form, setForm] = useState<"new" | "global" | null>(null);
+  const [form, setForm] = useState<"new" | "orchestrator" | null>(null);
   const [storedEnvironment, setEnvironment] = useWorkspaceTabValue(
     "environment",
     "",
@@ -144,6 +145,13 @@ export function VisualWorkspace() {
     ({ environmentId, item }) => !waitingItems.has(JSON.stringify([environmentId, item.id])),
   );
   const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
+  const orchestratorHost =
+    (!form && target?.global
+      ? state.hosts.find((host) => host.environmentId === target.environmentId)
+      : null) ??
+    hosts.find((host) => host.environmentId === target?.environmentId) ??
+    hosts.find((host) => host.connected && host.snapshot) ??
+    hosts[0];
   const hasPanel = form !== null || target !== null;
   function select(target: PanelTarget) {
     if (target.itemId) {
@@ -181,12 +189,12 @@ export function VisualWorkspace() {
             variant="ghost"
             size="sm"
             onClick={() => {
-              setReturnTo(target);
-              setForm("global");
+              if (!target?.global) setReturnTo(target);
+              setForm("orchestrator");
             }}
           >
             <MessageSquareIcon />
-            Global direction
+            Orchestrator
           </Button>
           <Button
             size="sm"
@@ -368,47 +376,40 @@ export function VisualWorkspace() {
             })}
           </div>
         </section>
-        {form ? (
+        {form === "orchestrator" || (!form && target?.global) ? (
+          orchestratorHost ? (
+            <OrchestratorPanel
+              key={orchestratorHost.environmentId}
+              state={state}
+              host={orchestratorHost}
+              selected={
+                target?.global && target.environmentId === orchestratorHost.environmentId
+                  ? target.threadId
+                  : undefined
+              }
+              select={select}
+              close={close}
+            />
+          ) : (
+            <aside className="p-4">
+              Connect an environment to open Orchestrator.{" "}
+              <Button variant="ghost" onClick={close}>
+                Close
+              </Button>
+            </aside>
+          )
+        ) : form === "new" ? (
           <aside className="overflow-auto border-l border-border bg-background">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="font-semibold">
-                {form === "new" ? "New work item" : "Global direction"}
-              </h2>
+              <h2 className="font-semibold">New work item</h2>
               <Button size="icon-sm" variant="ghost" aria-label="Close work panel" onClick={close}>
                 <XIcon />
               </Button>
             </div>
-            {form === "global" &&
-              state.hosts.flatMap((host) => {
-                const id = host.snapshot?.orchestratorThreadId;
-                if (!id) return [];
-                return (
-                  <div className="p-4 pb-0" key={host.environmentId}>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        select({
-                          environmentId: host.environmentId,
-                          itemId: null,
-                          threadId: id,
-                          global: true,
-                        })
-                      }
-                    >
-                      <MessageSquareIcon />
-                      {host.label} ·{" "}
-                      {state.shells.find(
-                        (s) => s.environmentId === host.environmentId && s.id === id,
-                      )?.title ?? "Open orchestrator"}
-                    </Button>
-                  </div>
-                );
-              })}
             <ItemCreate
               state={state}
-              global={form === "global"}
               onCreate={(environmentId, itemId, threadId) =>
-                select({ environmentId, itemId, threadId, global: form === "global" })
+                select({ environmentId, itemId, threadId })
               }
             />
           </aside>

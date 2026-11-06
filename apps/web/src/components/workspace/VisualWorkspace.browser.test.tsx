@@ -16,6 +16,7 @@ vi.mock("./workspaceState", () => ({
 vi.mock("../../state/server", () => ({
   serverEnvironment: { workspaceCommand: { permissionAtom: () => Atom.make(true) } },
 }));
+vi.mock("./OrchestratorPanel", () => ({ OrchestratorPanel: () => null }));
 vi.mock("../ChatView", () => ({
   default: ({ threadId }: { threadId: string }) => <p>Session {threadId}</p>,
 }));
@@ -61,7 +62,7 @@ it("leaves a discussion selected when another work item requests attention and r
     label: "Local",
     connected: true,
     error: null,
-    snapshot: { orchestratorThreadId: null, items: workItems, requests: [] },
+    snapshot: { orchestratorThreadIds: [], items: workItems, requests: [] },
   };
   snapshot = {
     hosts: [host],

@@ -36,11 +36,9 @@ export function useDelivery() {
 export function ItemCreate({
   state,
   onCreate,
-  global,
 }: {
   state: WorkspaceState;
   onCreate: (environmentId: EnvironmentId, itemId: string | null, threadId: ThreadId) => void;
-  global: boolean;
 }) {
   const availability = state.hosts.filter((host) => host.connected && host.snapshot);
   const [hostId, setHostId] = useState("");
@@ -70,10 +68,9 @@ export function ItemCreate({
         </label>
       )}
       <HostCreate
-        key={JSON.stringify([host.environmentId, global])}
+        key={host.environmentId}
         state={state}
         environmentId={host.environmentId}
-        global={global}
         onCreate={onCreate}
       />
     </div>
@@ -85,13 +82,12 @@ const stageSchema = Schema.Literals(stages);
 function HostCreate({
   state,
   environmentId,
-  global,
   onCreate,
 }: Parameters<typeof ItemCreate>[0] & { environmentId: EnvironmentId }) {
   const run = useWorkspaceCommand();
   const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
   const [newItemId] = useState(randomUUID);
-  const prefix = JSON.stringify([environmentId, global]);
+  const prefix = JSON.stringify([environmentId, false]);
   const [id, setId] = useWorkspaceTabValue(`new.${prefix}.thread`, "", Schema.String);
   const [title, setTitle] = useWorkspaceTabValue(`new.${prefix}.title`, "", Schema.String);
   const [scope, setScope] = useWorkspaceTabValue(`new.${prefix}.scope`, "", Schema.String);
@@ -101,10 +97,9 @@ function HostCreate({
       shell.environmentId === environmentId &&
       !shell.archivedAt &&
       !shell.deletedAt &&
-      (global ||
-        !state.items.some(
-          (entry) => entry.environmentId === environmentId && itemHasThread(entry.item, shell.id),
-        )),
+      !state.items.some(
+        (entry) => entry.environmentId === environmentId && itemHasThread(entry.item, shell.id),
+      ),
   );
   const source = sessions.find((shell) => shell.id === id);
   const delivery = useDelivery();
@@ -113,32 +108,26 @@ function HostCreate({
       className="grid gap-3 text-sm"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!source || !allowed || (!global && !title.trim())) return;
+        if (!source || !allowed || !title.trim()) return;
         void delivery.submit(async () => {
-          const itemId = global ? null : newItemId;
-          await run(
-            environmentId,
-            itemId
-              ? {
-                  type: "create",
-                  itemId,
-                  title: title.trim(),
-                  scope: scope.trim(),
-                  stage,
-                  primaryThreadId: source.id,
-                }
-              : { type: "orchestrator", threadId: source.id },
-          );
+          await run(environmentId, {
+            type: "create",
+            itemId: newItemId,
+            title: title.trim(),
+            scope: scope.trim(),
+            stage,
+            primaryThreadId: source.id,
+          });
           setId("");
           setTitle("");
           setScope("");
           setStage("planning");
-          onCreate(environmentId, itemId, source.id);
+          onCreate(environmentId, newItemId, source.id);
         });
       }}
     >
       <label className="grid gap-1 text-xs">
-        {global ? "Orchestrator session" : "Primary conversation"}
+        Primary conversation
         <select className={field} required value={id} onChange={(e) => setId(e.target.value)}>
           <option value="">Select a session</option>
           {sessions.map((shell) => (
@@ -153,41 +142,36 @@ function HostCreate({
           Start a session from the sidebar, then select it here.
         </p>
       )}
-      {!global && (
-        <>
-          <label className="grid gap-1 text-xs">
-            Work item title
-            <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          <label className="grid gap-1 text-xs">
-            Scope
-            <Textarea value={scope} onChange={(e) => setScope(e.target.value)} />
-          </label>
-          <label className="grid gap-1 text-xs">
-            Stage
-            <select
-              className={field}
-              value={stage}
-              onChange={(e) => {
-                const match = stages.find((s) => s === e.target.value);
-                if (match) setStage(match);
-              }}
-            >
-              {stages.map((s) => (
-                <option value={s} key={s}>
-                  {stageLabel[s]}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
-      <div>
-        <Button
-          disabled={!allowed || delivery.busy || !source || (!global && !title.trim())}
-          type="submit"
+
+      <label className="grid gap-1 text-xs">
+        Work item title
+        <Input required value={title} onChange={(e) => setTitle(e.target.value)} />
+      </label>
+      <label className="grid gap-1 text-xs">
+        Scope
+        <Textarea value={scope} onChange={(e) => setScope(e.target.value)} />
+      </label>
+      <label className="grid gap-1 text-xs">
+        Stage
+        <select
+          className={field}
+          value={stage}
+          onChange={(e) => {
+            const match = stages.find((s) => s === e.target.value);
+            if (match) setStage(match);
+          }}
         >
-          {delivery.busy ? "Saving…" : global ? "Set orchestrator" : "Create work item"}
+          {stages.map((s) => (
+            <option value={s} key={s}>
+              {stageLabel[s]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div>
+        <Button disabled={!allowed || delivery.busy || !source || !title.trim()} type="submit">
+          {delivery.busy ? "Saving…" : "Create work item"}
         </Button>
       </div>
       {delivery.error && (
