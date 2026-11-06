@@ -207,7 +207,8 @@ export function VisualWorkspace() {
   );
   const cards = visibleItems.map((entry) => {
     const pending = requests.filter(
-      (request) => request.environmentId === entry.environmentId && request.itemId === entry.item.id,
+      (request) =>
+        request.environmentId === entry.environmentId && request.itemId === entry.item.id,
     );
     return { entry, pending, column: pending.length > 0 ? "needs-me" : entry.item.stage };
   });
