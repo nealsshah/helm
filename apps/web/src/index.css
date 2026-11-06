@@ -331,7 +331,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
   }
   @keyframes attention {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 0.1;
     }
     50% {

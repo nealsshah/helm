@@ -165,7 +165,6 @@ export function useWorkspaceState() {
         kind: request.kind,
         prompt: request.prompt,
         createdAt: request.createdAt,
-        request,
       })),
   );
   for (const { shell, pending } of threadStates) {

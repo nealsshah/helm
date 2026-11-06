@@ -6,7 +6,7 @@ import { nativeQueueEntries, runtimeLabel, safeArtifactUrl } from "./workspaceMo
 describe("workspace runtime", () => {
   const shell = makeThreadFixture({ hasPendingApprovals: true, hasPendingUserInput: true });
   const now = "2026-11-06T18:30:00Z";
-  it("keeps simultaneous provider requests on one session individually addressable", () => {
+  it("preserves reasons from simultaneous provider requests on one session", () => {
     const approval = RuntimeRequestId.make("approval");
     const question = RuntimeRequestId.make("question");
     const requests = nativeQueueEntries(
@@ -41,9 +41,9 @@ describe("workspace runtime", () => {
       },
       "qa",
     );
-    expect(requests.map((r) => [r.threadId, r.itemId, r.nativeRequestId, r.prompt])).toEqual([
-      [shell.id, "qa", approval, "Run the formatter?"],
-      [shell.id, "qa", question, "Which repository?"],
+    expect(requests.map((r) => [r.threadId, r.itemId, r.prompt])).toEqual([
+      [shell.id, "qa", "Run the formatter?"],
+      [shell.id, "qa", "Which repository?"],
     ]);
     expect(new Set(requests.map((r) => r.key)).size).toBe(2);
     expect(runtimeLabel(shell, false)).toBe("Disconnected");
@@ -54,7 +54,7 @@ describe("workspace runtime", () => {
     (pending) => {
       expect(nativeQueueEntries(shell, pending, null)).toMatchObject([
         { threadId: shell.id, itemId: null, kind: "Approval" },
-        { threadId: shell.id, itemId: null, kind: "Question" },
+        { threadId: shell.id, itemId: null, kind: "Input" },
       ]);
     },
   );

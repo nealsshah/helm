@@ -1,13 +1,7 @@
 import { useRef, useState } from "react";
 import type { ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import {
-  Columns3Icon,
-  InboxIcon,
-  MessageSquareIcon,
-  PlusIcon,
-  XIcon,
-} from "lucide-react";
+import { Columns3Icon, InboxIcon, MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
@@ -279,10 +273,16 @@ export function VisualWorkspace() {
                       <button
                         type="button"
                         aria-label={title}
-                        aria-pressed={target?.environmentId === environmentId && target.threadId === threadId}
+                        aria-pressed={
+                          target?.environmentId === environmentId && target.threadId === threadId
+                        }
                         className="group relative grid w-full content-start gap-1.5 rounded-lg border border-warning/40 bg-card px-3 py-2.5 text-left shadow-xs hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring after:pointer-events-none after:absolute after:-inset-px after:rounded-[inherit] after:border-2 after:border-warning/80 after:opacity-60 motion-safe:after:animate-attention"
                         onClick={() => {
-                          if (target?.threadId !== threadId || target.environmentId !== environmentId) setReturnTo(target);
+                          if (
+                            target?.threadId !== threadId ||
+                            target.environmentId !== environmentId
+                          )
+                            setReturnTo(target);
                           select({ environmentId, itemId, threadId });
                         }}
                       >
@@ -291,8 +291,12 @@ export function VisualWorkspace() {
                           {linked && linked.item.title !== title && ` · ${linked.item.title}`}
                           {hostLabel && ` · ${hostLabel}`}
                         </span>
-                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">{title}</span>
-                        <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">{first.prompt}</span>
+                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">
+                          {title}
+                        </span>
+                        <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">
+                          {first.prompt}
+                        </span>
                       </button>
                     </li>
                   );

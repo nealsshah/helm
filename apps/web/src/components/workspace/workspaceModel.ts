@@ -4,10 +4,8 @@ import type { PendingThreadRequests } from "@t3tools/client-runtime/state/thread
 import {
   WorkspaceStage,
   type EnvironmentId,
-  type RuntimeRequestId,
   type ThreadId,
   type WorkItem,
-  type WorkspaceRequest,
 } from "@t3tools/contracts";
 
 export const stages = WorkspaceStage.literals;
@@ -31,8 +29,6 @@ export interface QueueEntry {
   kind: string;
   prompt: string;
   createdAt: string;
-  request?: WorkspaceRequest;
-  nativeRequestId?: RuntimeRequestId;
 }
 
 export function itemHasThread(item: WorkItem, threadId: ThreadId) {
@@ -77,13 +73,7 @@ export function nativeQueueEntries(
   itemId: string | null,
 ): QueueEntry[] {
   const result: QueueEntry[] = [];
-  function add(
-    id: string,
-    kind: string,
-    prompt: string,
-    createdAt: string,
-    nativeRequestId?: RuntimeRequestId,
-  ) {
+  function add(id: string, kind: string, prompt: string, createdAt: string) {
     result.push({
       key: JSON.stringify([shell.environmentId, shell.id, kind, id]),
       environmentId: shell.environmentId,
@@ -92,7 +82,6 @@ export function nativeQueueEntries(
       kind,
       prompt,
       createdAt,
-      ...(nativeRequestId ? { nativeRequestId } : {}),
     });
   }
   for (const approval of pending?.approvals ?? []) {
@@ -101,23 +90,21 @@ export function nativeQueueEntries(
       "Approval",
       approval.detail || approval.reason || approval.requestKind,
       approval.createdAt,
-      approval.requestId,
     );
   }
   for (const input of pending?.userInputs ?? []) {
     add(
       input.requestId,
-      "Question",
+      "Input",
       input.questions.map((question) => question.question).join(" • "),
       input.createdAt,
-      input.requestId,
     );
   }
   if (shell.hasPendingApprovals && !pending?.approvals.length) {
-    add("pending", "Approval", "Open session to inspect the pending approval", shell.updatedAt);
+    add("pending", "Approval", "Approval needed", shell.updatedAt);
   }
   if (shell.hasPendingUserInput && !pending?.userInputs.length) {
-    add("pending", "Question", "Open session to view the pending question", shell.updatedAt);
+    add("pending", "Input", "Waiting for your input", shell.updatedAt);
   }
   if (shell.hasActionableProposedPlan)
     add("plan", "Review", "Review the proposed plan", shell.updatedAt);

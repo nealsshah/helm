@@ -198,8 +198,7 @@ export function WorkPanel({
                   : "This worker is no longer linked to the work item."}
               </p>
             )}
-            {!nextThread ||
-            (!shell && !detached && !changedOrchestrator) ? (
+            {!nextThread || (!shell && !detached && !changedOrchestrator) ? (
               "Session unavailable. Its workspace records are retained here."
             ) : (
               <Button

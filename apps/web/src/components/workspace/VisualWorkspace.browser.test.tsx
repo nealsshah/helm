@@ -1,9 +1,4 @@
-import {
-  EnvironmentId,
-  ThreadId,
-  type WorkItem,
-  type WorkspaceRequest,
-} from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, type WorkItem, type WorkspaceRequest } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
@@ -116,7 +111,6 @@ it("leaves a discussion selected when another work item requests attention and r
         kind: "question",
         prompt: request.prompt,
         createdAt: timestamp,
-        request,
       },
     ],
   };
@@ -139,12 +133,19 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
   const workerCard = needsMe.getByRole("button", { name: "Verification worker" });
   await workerCard.click();
-  await expect.element(screen.getByText("Session verification-worker", { exact: true })).toBeVisible();
+  await expect
+    .element(screen.getByText("Session verification-worker", { exact: true }))
+    .toBeVisible();
   await screen.getByRole("button", { name: "Close work panel" }).click();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
 
   const original = snapshot.requests[0]!;
-  const primary = { ...original, key: "primary", threadId: qa.primaryThreadId, prompt: "Review the proposed plan" };
+  const primary = {
+    ...original,
+    key: "primary",
+    threadId: qa.primaryThreadId,
+    prompt: "Review the proposed plan",
+  };
   snapshot = { ...snapshot, requests: [original, { ...original, key: "followup" }, primary] };
   await screen.rerender(ui());
   await expect.element(needsMe.getByRole("listitem").nth(2)).not.toBeInTheDocument();
