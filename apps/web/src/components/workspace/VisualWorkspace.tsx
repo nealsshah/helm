@@ -1,11 +1,22 @@
 import { useRef, useState } from "react";
 import type { ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { Columns3Icon, InboxIcon, MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
+import {
+  CircleDashedIcon,
+  CircleCheckIcon,
+  CircleDotIcon,
+  ScanEyeIcon,
+  Columns3Icon,
+  InboxIcon,
+  MessageSquareIcon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
 import { OrchestratorPanel } from "./OrchestratorPanel";
+import { WorkspaceSidePane } from "./WorkspaceSidePane";
 import { WorkPanel } from "./WorkPanel";
 import { PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
 import * as Schema from "effect/Schema";
@@ -22,6 +33,13 @@ import {
 } from "./workspaceModel";
 import { useWorkspaceState } from "./workspaceState";
 
+const stageIcons = {
+  planning: CircleDashedIcon,
+  building: CircleDotIcon,
+  qa: ScanEyeIcon,
+  complete: CircleCheckIcon,
+};
+
 function WorkCard({
   entry,
   sessions,
@@ -35,7 +53,7 @@ function WorkCard({
   sessions: EnvironmentThreadShell[];
   dependencies: ReturnType<typeof outstandingDependencies>;
   connected: boolean;
-  host: string;
+  host: string | undefined;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -54,23 +72,21 @@ function WorkCard({
     primary;
   const runtime = runtimeLabel(source, connected);
   const time = source?.runtime?.updatedAt ?? source?.updatedAt;
+  const summary = item.latestReport?.text ?? item.scope;
   return (
     <button
       type="button"
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "group grid w-full gap-3 rounded-lg border bg-background p-3 text-left shadow-xs hover:border-foreground/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected ? "border-foreground/55 ring-1 ring-inset ring-foreground/15" : "border-border",
+        "grid w-full min-w-0 gap-1.5 rounded-md px-3 py-3 text-left hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        selected && "bg-accent/70",
       )}
     >
-      <span className="grid gap-1">
-        <span className="truncate text-2xs text-muted-foreground">{host}</span>
-        <span className="break-words text-sm font-semibold leading-snug">{item.title}</span>
-      </span>
-      {item.scope && (
-        <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {item.scope}
+      <span className="break-words text-sm font-medium leading-snug">{item.title}</span>
+      {summary && item.stage !== "complete" && (
+        <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">
+          {summary}
         </span>
       )}
       {dependencies.map((dep) => (
@@ -78,36 +94,27 @@ function WorkCard({
           Waiting on {dep.title} · {dep.owner}
         </span>
       ))}
-      {item.latestReport && (
-        <span className="line-clamp-2 text-xs text-muted-foreground">
-          {item.latestReport.format === "legacy" ? "Legacy update" : "Reported"} ·{" "}
-          {item.latestReport.text}
-        </span>
-      )}
-      <span className="flex flex-wrap items-center gap-1 text-2xs">
-        {item.attention !== "none" && (
-          <span className="rounded bg-muted px-1.5 py-0.5 capitalize">{item.attention}</span>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+        {runtime !== "Idle" && (
+          <span className="inline-flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-1.5 rounded-full",
+                runtime === "Running"
+                  ? "bg-success"
+                  : runtime === "Error"
+                    ? "bg-destructive"
+                    : "bg-muted-foreground",
+              )}
+            />
+            {runtime}
+          </span>
         )}
-        <span className="inline-flex items-center gap-1 text-muted-foreground">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-1.5 rounded-full",
-              runtime === "Running"
-                ? "bg-success"
-                : runtime === "Error"
-                  ? "bg-destructive"
-                  : "bg-muted-foreground/50",
-            )}
-          />
-          {runtime}
-        </span>
+        {item.attention !== "none" && <span className="capitalize">{item.attention}</span>}
+        {host && <span className="truncate">{host}</span>}
+        {time && <time dateTime={time}>{sourceTime(time)}</time>}
       </span>
-      {time && (
-        <span className="truncate text-3xs text-muted-foreground">
-          {source?.title} · <time dateTime={time}>{sourceTime(time)}</time>
-        </span>
-      )}
     </button>
   );
 }
@@ -178,7 +185,7 @@ export function VisualWorkspace() {
     setReturnTo(null);
   }
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
+    <SidebarInset className="@container/workspace h-dvh min-h-0 overflow-hidden">
       <header className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 md:px-5">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
@@ -209,7 +216,7 @@ export function VisualWorkspace() {
         </div>
       </header>
       {hasPanel && (
-        <div className="flex gap-2 border-b border-border px-3 py-1 lg:hidden">
+        <div className="flex gap-2 border-b border-border px-3 py-1 @3xl/workspace:hidden">
           <Button
             size="compact"
             variant="ghost"
@@ -223,14 +230,12 @@ export function VisualWorkspace() {
           </Button>
         </div>
       )}
-      <div
-        className={cn(
-          "relative grid min-h-0 flex-1",
-          hasPanel && "lg:grid-cols-[minmax(0,1fr)_minmax(24rem,45%)]",
-        )}
-      >
+      <div className="relative flex min-h-0 min-w-0 flex-1">
         <section
-          className={cn("flex min-h-0 min-w-0 flex-col", hasPanel && "hidden lg:flex")}
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col",
+            hasPanel && "hidden @3xl/workspace:flex",
+          )}
           aria-label="Workspace overview"
         >
           <section
@@ -331,23 +336,30 @@ export function VisualWorkspace() {
                 : "Create a work item and choose its primary conversation."}
             </div>
           )}
-          <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
+          <div className="flex min-h-0 min-w-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden px-4 pb-3 pt-4">
             {stages.map((stage) => {
+              const StageIcon = stageIcons[stage];
               const entries = cards.filter((card) => card.item.stage === stage);
               return (
                 <section
                   aria-label={stageLabel[stage]}
                   key={stage}
-                  className={cn(
-                    "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
-                    entries.length ? "min-w-44" : "min-w-24",
-                  )}
+                  className="flex min-h-0 min-w-40 flex-1 flex-col"
                 >
-                  <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
+                  <h2 className="mb-1 flex shrink-0 items-center gap-2 border-b border-border/60 px-2 pb-2.5 text-sm font-semibold">
+                    <StageIcon
+                      aria-hidden="true"
+                      className={cn(
+                        "size-3.5",
+                        stage === "complete" ? "text-success" : "text-muted-foreground",
+                      )}
+                    />
                     <span>{stageLabel[stage]}</span>
-                    <span className="tabular-nums text-muted-foreground">{entries.length}</span>
+                    <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                      {entries.length}
+                    </span>
                   </h2>
-                  <div className="grid gap-2">
+                  <div className="min-h-0 overflow-y-auto overscroll-y-contain">
                     {entries.map((entry) => {
                       const { environmentId, item } = entry;
                       const host = hosts.find((entry) => entry.environmentId === environmentId);
@@ -356,7 +368,7 @@ export function VisualWorkspace() {
                           key={JSON.stringify([environmentId, item.id])}
                           entry={entry}
                           dependencies={outstandingDependencies(item, host?.snapshot?.items ?? [])}
-                          host={host?.label ?? environmentId}
+                          host={hosts.length > 1 ? (host?.label ?? environmentId) : undefined}
                           connected={host?.connected ?? false}
                           sessions={state.shells.filter(
                             (shell) =>
@@ -376,45 +388,54 @@ export function VisualWorkspace() {
             })}
           </div>
         </section>
-        {form === "orchestrator" || (!form && target?.global) ? (
-          orchestratorHost ? (
-            <OrchestratorPanel
-              key={orchestratorHost.environmentId}
-              state={state}
-              host={orchestratorHost}
-              selected={
-                target?.global && target.environmentId === orchestratorHost.environmentId
-                  ? target.threadId
-                  : undefined
-              }
-              select={select}
-              close={close}
-            />
-          ) : (
-            <aside className="p-4">
-              Connect an environment to open Orchestrator.{" "}
-              <Button variant="ghost" onClick={close}>
-                Close
-              </Button>
-            </aside>
-          )
-        ) : form === "new" ? (
-          <aside className="overflow-auto border-l border-border bg-background">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="font-semibold">New work item</h2>
-              <Button size="icon-sm" variant="ghost" aria-label="Close work panel" onClick={close}>
-                <XIcon />
-              </Button>
-            </div>
-            <ItemCreate
-              state={state}
-              onCreate={(environmentId, itemId, threadId) =>
-                select({ environmentId, itemId, threadId })
-              }
-            />
-          </aside>
-        ) : (
-          target && <WorkPanel state={state} target={target} close={close} select={select} />
+        {hasPanel && (
+          <WorkspaceSidePane>
+            {form === "orchestrator" || (!form && target?.global) ? (
+              orchestratorHost ? (
+                <OrchestratorPanel
+                  key={orchestratorHost.environmentId}
+                  state={state}
+                  host={orchestratorHost}
+                  selected={
+                    target?.global && target.environmentId === orchestratorHost.environmentId
+                      ? target.threadId
+                      : undefined
+                  }
+                  select={select}
+                  close={close}
+                />
+              ) : (
+                <aside className="p-4">
+                  Connect an environment to open Orchestrator.{" "}
+                  <Button variant="ghost" onClick={close}>
+                    Close
+                  </Button>
+                </aside>
+              )
+            ) : form === "new" ? (
+              <aside className="overflow-auto border-l border-border bg-background">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <h2 className="font-semibold">New work item</h2>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Close work panel"
+                    onClick={close}
+                  >
+                    <XIcon />
+                  </Button>
+                </div>
+                <ItemCreate
+                  state={state}
+                  onCreate={(environmentId, itemId, threadId) =>
+                    select({ environmentId, itemId, threadId })
+                  }
+                />
+              </aside>
+            ) : (
+              target && <WorkPanel state={state} target={target} close={close} select={select} />
+            )}
+          </WorkspaceSidePane>
         )}
       </div>
     </SidebarInset>
