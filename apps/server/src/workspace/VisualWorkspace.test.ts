@@ -161,7 +161,7 @@ it.effect(
       expect(
         (yield* Effect.flip(
           w.command(
-            { type: "report", itemId: "build", threadId: primary, text: "done" },
+            { type: "report", itemId: "build", threadId: primary, text: "done", stage: "complete" },
             { threadId: worker },
           ),
         )).message,
@@ -170,8 +170,17 @@ it.effect(
         { type: "disassociate", itemId: "build", threadId: worker },
         { threadId: primary },
       );
+      expect(
+        (yield* Effect.flip(
+          w.command(
+            { type: "report", itemId: "build", threadId: worker, text: "done", stage: "complete" },
+            { threadId: worker },
+          ),
+        )).message,
+      ).toContain("not associated");
       const after = yield* (yield* makeVisualWorkspace).get();
       expect(after.items[0]).toMatchObject({
+        stage: "backlog",
         sessions: [],
         decisions: [{ text: "Only ship the board" }],
       });
@@ -291,6 +300,31 @@ it.effect(
       }
       expect((yield* t3.getThreadRecords(worker, ["messages"])).messages).toHaveLength(1);
     }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("assigned workers move a card forward and back when their report changes its stage", () =>
+  Effect.gen(function* () {
+    const workspace = yield* fixture;
+    for (const [threadId, stage, text] of [
+      [primary, "review", "Ready for review"],
+      [worker, "building", "Review found a bug"],
+    ] as const) {
+      const result = yield* workspace.command(
+        { type: "report", itemId: "build", threadId, text, stage },
+        { threadId },
+      );
+      expect(result.items[0]).toMatchObject({ stage, latestReport: { threadId, text } });
+    }
+    yield* workspace.command(
+      { type: "report", itemId: "build", threadId: primary, text: "Fix in progress" },
+      { threadId: primary },
+    );
+    const saved = yield* (yield* makeVisualWorkspace).get();
+    expect(saved.items[0]).toMatchObject({
+      stage: "building",
+      latestReport: { text: "Fix in progress" },
+    });
+  }).pipe(Effect.provide(testLayer)),
 );
 
 it.effect(

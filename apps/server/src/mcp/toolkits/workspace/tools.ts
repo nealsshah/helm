@@ -57,7 +57,7 @@ const read = Tool.make("t3_workspace_read", {
 const update = Tool.make("t3_workspace_update", {
   ...shared,
   description:
-    "Publish progress or request human input on your assigned item. Use callerThreadId. Every request needs a unique requestId, including the first attempt. Reuse it on retry. The workspace orchestrator can also manage work, sessions, dependencies and milestones.",
+    "Report progress or request human input on your assigned item using callerThreadId. Include stage in a report to move the card when the work changes phase. Every request needs a unique requestId, including the first attempt. Reuse it on retry. The workspace orchestrator can also manage work, sessions, dependencies and milestones.",
   parameters: Schema.Struct({ command: WorkspaceAgentCommand }),
   success: Schema.Struct({
     itemId: TrimmedNonEmptyString,

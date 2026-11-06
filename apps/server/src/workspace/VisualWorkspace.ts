@@ -251,7 +251,9 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       if (cmd.type === "request" || cmd.type === "report") {
         if (cmd.threadId !== actor.threadId) return yield* fail("Publish from the calling thread.");
       } else if ((yield* binding()) !== actor.threadId) {
-        return yield* fail("Only the configured orchestrator can manage workspace items.");
+        return yield* fail(
+          "Only the configured orchestrator can manage workspace items. To move your assigned card, include stage in a report from your thread.",
+        );
       }
     }
     if (cmd.type === "orchestrator") {
@@ -377,6 +379,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         // Workers and imported files have independent clocks. Arrival at the owning server orders reports.
         item = {
           ...item,
+          stage: cmd.stage ?? item.stage,
           latestReport: {
             threadId: cmd.threadId,
             text: cmd.text,

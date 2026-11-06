@@ -104,6 +104,7 @@ export const WorkspaceAgentCommand = Schema.Union([
     itemId: Text,
     threadId: ThreadId,
     text: Text,
+    stage: Schema.optional(WorkspaceStage),
     reportedAt: Schema.optional(IsoDateTime),
     format: Schema.optional(Schema.Literals(["progress", "legacy"])),
   }),
