@@ -4,7 +4,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { MessageSquareIcon, PlusIcon, XIcon } from "lucide-react";
 import { useRef, useState } from "react";
-import { cn, newThreadId } from "../../lib/utils";
+import { newThreadId } from "../../lib/utils";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { useProjects } from "../../state/entities";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
@@ -12,6 +12,7 @@ import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { Button } from "../ui/button";
 import { field, useDelivery } from "./WorkspaceForms";
+import { SessionTabs } from "./SessionTabs";
 import { WorkPanel } from "./WorkPanel";
 import { useWorkspaceCommand, type WorkspaceState } from "./workspaceState";
 import type { PanelTarget } from "./workspaceTab";
@@ -44,7 +45,6 @@ export function OrchestratorPanel({
   const run = useWorkspaceCommand();
   const delivery = useDelivery();
   const pendingRegistration = useRef<ThreadId | null>(null);
-  const list = useRef<HTMLDivElement>(null);
   const open = (threadId: ThreadId) =>
     select({ environmentId, threadId, itemId: null, global: true });
   async function add(createdAt: string) {
@@ -86,75 +86,25 @@ export function OrchestratorPanel({
       aria-label="Orchestrator"
       className="flex min-h-0 min-w-0 flex-col border-l border-border bg-background"
     >
-      <div className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-muted/30 pr-1">
-        <div
-          ref={list}
-          role="tablist"
-          aria-label="Orchestrator sessions"
-          className="flex min-w-0 items-stretch overflow-x-auto"
-        >
-          {tabs.map((id, index) => {
-            const title = shells.find((shell) => shell.id === id)?.title ?? "Orchestrator";
-            return (
-              <div
-                key={id}
-                className={cn(
-                  "flex shrink-0 items-center border-r border-b-2 border-r-border pr-1",
-                  active === id ? "border-b-primary bg-background" : "border-b-transparent",
-                )}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={active === id}
-                  tabIndex={active === id ? 0 : -1}
-                  ref={(node) => {
-                    if (node && active === id)
-                      node.scrollIntoView({ block: "nearest", inline: "nearest" });
-                  }}
-                  onClick={() => open(id)}
-                  onKeyDown={(event) => {
-                    const next =
-                      event.key === "ArrowRight"
-                        ? (index + 1) % tabs.length
-                        : event.key === "ArrowLeft"
-                          ? (index + tabs.length - 1) % tabs.length
-                          : event.key === "Home"
-                            ? 0
-                            : event.key === "End"
-                              ? tabs.length - 1
-                              : -1;
-                    if (next < 0) return;
-                    event.preventDefault();
-                    open(tabs[next]!);
-                    list.current?.querySelectorAll<HTMLButtonElement>("[role=tab]")[next]?.focus();
-                  }}
-                  className="flex min-h-11 max-w-44 items-center gap-2 px-3 text-xs focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                >
-                  <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{title}</span>
-                </button>
-                {active === id && (
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Close tab ${title}`}
-                    disabled={disabled}
-                    onClick={() =>
-                      void delivery.submit(async () => {
-                        await run(environmentId, { type: "closeOrchestrator", threadId: id });
-                        const neighbor = tabs[index + 1] ?? tabs[index - 1];
-                        if (neighbor) open(neighbor);
-                      })
-                    }
-                  >
-                    <XIcon />
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-muted/35 px-2">
+        <SessionTabs
+          label="Orchestrator sessions"
+          tabs={tabs.map((id) => ({
+            id,
+            title: shells.find((shell) => shell.id === id)?.title ?? "Orchestrator",
+          }))}
+          selected={active}
+          onSelect={open}
+          closeDisabled={disabled}
+          onClose={(id) =>
+            void delivery.submit(async () => {
+              const index = tabs.indexOf(id);
+              await run(environmentId, { type: "closeOrchestrator", threadId: id });
+              const neighbor = tabs[index + 1] ?? tabs[index - 1];
+              if (neighbor) open(neighbor);
+            })
+          }
+        />
         <Button
           variant="ghost"
           size="icon-sm"

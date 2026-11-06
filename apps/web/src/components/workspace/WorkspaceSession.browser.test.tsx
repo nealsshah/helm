@@ -4,7 +4,7 @@ import * as DateTime from "effect/DateTime";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { AppRoot } from "~/AppRoot";
 import "../ChatView";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
@@ -103,9 +103,13 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .getByRole("region", { name: "Needs me" })
     .getByRole("button", { name: "Thread archived-worker", exact: true })
     .click();
-  const conversation = screen.getByRole("combobox", { name: "Conversation", exact: true });
-  await expect.element(conversation).toHaveValue(archivedWorker.id);
-  await conversation.selectOptions(first.id);
+  const conversation = screen.getByRole("tab", { name: archivedWorker.title, exact: true });
+  await expect.element(conversation).toHaveAttribute("aria-selected", "true");
+  await conversation.click();
+  await userEvent.keyboard("{Home}");
+  await expect
+    .element(screen.getByRole("tab", { name: first.title }))
+    .toHaveAttribute("aria-selected", "true");
   const editor = screen.getByTestId("composer-editor");
   await expect.element(editor).toBeVisible();
   await editor.fill("Unsent shaping direction");
@@ -118,8 +122,8 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .getByRole("region", { name: "Needs me" })
     .getByRole("button", { name: "Thread archived-worker", exact: true })
     .click();
-  await expect.element(conversation).toHaveValue(archivedWorker.id);
-  await conversation.selectOptions(first.id);
+  await expect.element(conversation).toHaveAttribute("aria-selected", "true");
+  await screen.getByRole("tab", { name: first.title }).click();
   await expect.element(editor).toHaveTextContent("Unsent shaping direction");
   await board.getByRole("region", { name: "Building" }).getByRole("button").click();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");

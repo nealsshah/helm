@@ -1,6 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, WorkItem, WorkspaceCommand } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { SessionTabs } from "./SessionTabs";
 import { ExternalLinkIcon, XIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { type PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
@@ -47,6 +49,15 @@ export function WorkPanel({
     : item?.primaryThreadId === threadId
       ? "Work conversation"
       : (item?.sessions.find((entry) => entry.threadId === threadId)?.role ?? "Session");
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
+  const itemKey = JSON.stringify([environmentId, itemId]);
+  const showDetails = detailsFor === itemKey;
+  const conversations = item
+    ? [
+        { threadId: item.primaryThreadId, role: "Primary" },
+        ...item.sessions.filter((session) => session.threadId !== item.primaryThreadId),
+      ]
+    : [];
   const destination = `${role} · ${shell?.title ?? threadId}`;
   return (
     <aside
@@ -59,14 +70,26 @@ export function WorkPanel({
       }
     >
       {!target.global && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+        <div className="flex min-h-12 shrink-0 items-center gap-1.5 border-b border-border/70 px-3 py-2">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-muted-foreground">
-              {host?.label} ·{" "}
-              {target.global ? "Orchestrator" : item ? stageLabel[item.stage] : "Unlinked session"}
+            <p className="truncate text-2xs font-medium text-muted-foreground">
+              {item ? stageLabel[item.stage] : "Session"}
+              {state.hosts.length > 1 && ` · ${host?.label ?? environmentId}`}
             </p>
-            <h2 className="truncate font-semibold">{item?.title ?? shell?.title ?? threadId}</h2>
+            <h2 className="truncate text-sm font-semibold">
+              {item?.title ?? shell?.title ?? threadId}
+            </h2>
           </div>
+          {item && (
+            <Button
+              size="compact"
+              variant={showDetails ? "secondary" : "ghost"}
+              aria-expanded={showDetails}
+              onClick={() => setDetailsFor(showDetails ? null : itemKey)}
+            >
+              Details
+            </Button>
+          )}
           <Link
             to="/$environmentId/$threadId"
             params={{ environmentId, threadId }}
@@ -81,13 +104,12 @@ export function WorkPanel({
         </div>
       )}
       <div className="max-h-[45%] shrink-0 overflow-auto">
-        {item && (
-          <details
-            key={JSON.stringify([environmentId, item.id])}
-            className="border-b border-border px-4 py-2 text-sm"
+        {item && showDetails && (
+          <section
+            aria-label="Ticket details"
+            className="border-b border-border/70 px-4 py-3 text-sm"
           >
-            <summary className="cursor-pointer font-medium">Scope, decisions and links</summary>
-            <div className="mt-2 grid gap-2">
+            <div className="grid gap-2">
               <p className="whitespace-pre-wrap text-muted-foreground">
                 {item.scope || "No scope recorded."}
               </p>
@@ -134,41 +156,31 @@ export function WorkPanel({
               )}
               <ItemSettings item={item} environmentId={environmentId} state={state} />
             </div>
-          </details>
-        )}
-        {item && (
-          <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
-            <label htmlFor="workspace-conversation">Conversation</label>
-            <select
-              id="workspace-conversation"
-              className={field}
-              value={threadId}
-              onChange={(event) => {
-                const next = [item.primaryThreadId, ...item.sessions.map((s) => s.threadId)].find(
-                  (id) => id === event.target.value,
-                );
-                if (next) select({ environmentId, itemId, threadId: next });
-              }}
-            >
-              {[
-                { threadId: item.primaryThreadId, role: "Primary" },
-                ...item.sessions.filter((entry) => entry.threadId !== item.primaryThreadId),
-              ].map((session) => {
-                const source = state.shells.find(
-                  (entry) => entry.environmentId === environmentId && entry.id === session.threadId,
-                );
-                return (
-                  <option key={session.threadId} value={session.threadId}>
-                    {session.role} · {source?.title ?? session.threadId} ·{" "}
-                    {runtimeLabel(source, host?.connected ?? false)}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          </section>
         )}
       </div>
+      {conversations.length > 1 && (
+        <div className="shrink-0 border-b border-border/70 bg-muted/35 px-2">
+          <SessionTabs
+            label="Work conversations"
+            selected={threadId}
+            onSelect={(id) => select({ environmentId, itemId, threadId: id })}
+            tabs={conversations.map((session) => {
+              const source = state.shells.find(
+                (entry) => entry.environmentId === environmentId && entry.id === session.threadId,
+              );
+              return {
+                id: session.threadId,
+                title: source?.title ?? session.role,
+                description: `${session.role} · ${source?.title ?? session.threadId} · ${runtimeLabel(source, host?.connected ?? false)}`,
+              };
+            })}
+          />
+        </div>
+      )}
       <div
+        role={conversations.length > 1 ? "tabpanel" : undefined}
+        aria-label={conversations.length > 1 ? destination : undefined}
         data-side-chat-pane
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >

@@ -79,8 +79,10 @@ function WorkCard({
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "grid w-full min-w-0 gap-1.5 rounded-md px-3 py-3 text-left hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected && "bg-accent/70",
+        "grid w-full min-w-0 cursor-pointer gap-1.5 rounded-lg border px-3 py-2.5 text-left shadow-xs transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        selected
+          ? "border-primary/55 bg-accent/60"
+          : "border-border/65 bg-card hover:border-foreground/30 dark:bg-foreground/5 dark:hover:bg-foreground/8",
       )}
     >
       <span className="break-words text-sm font-medium leading-snug">{item.title}</span>
@@ -336,7 +338,7 @@ export function VisualWorkspace() {
                 : "Create a work item and choose its primary conversation."}
             </div>
           )}
-          <div className="flex min-h-0 min-w-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden px-4 pb-3 pt-4">
+          <div className="flex min-h-0 min-w-0 flex-1 gap-2.5 overflow-x-auto overflow-y-hidden p-3">
             {stages.map((stage) => {
               const StageIcon = stageIcons[stage];
               const entries = cards.filter((card) => card.item.stage === stage);
@@ -344,9 +346,9 @@ export function VisualWorkspace() {
                 <section
                   aria-label={stageLabel[stage]}
                   key={stage}
-                  className="flex min-h-0 min-w-40 flex-1 flex-col"
+                  className="flex min-h-0 min-w-40 flex-1 flex-col rounded-xl bg-foreground/4 dark:bg-foreground/5"
                 >
-                  <h2 className="mb-1 flex shrink-0 items-center gap-2 border-b border-border/60 px-2 pb-2.5 text-sm font-semibold">
+                  <h2 className="flex shrink-0 items-center gap-2 px-3 py-3 text-sm font-semibold">
                     <StageIcon
                       aria-hidden="true"
                       className={cn(
@@ -359,7 +361,7 @@ export function VisualWorkspace() {
                       {entries.length}
                     </span>
                   </h2>
-                  <div className="min-h-0 overflow-y-auto overscroll-y-contain">
+                  <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-y-contain px-2 pb-2">
                     {entries.map((entry) => {
                       const { environmentId, item } = entry;
                       const host = hosts.find((entry) => entry.environmentId === environmentId);
