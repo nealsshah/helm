@@ -135,7 +135,7 @@ function RequestRow({
       onClick={open}
       aria-pressed={selected}
       className={cn(
-        "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+        "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         selected && "bg-muted",
       )}
     >
@@ -335,7 +335,7 @@ export function VisualWorkspace() {
                     >
                       <button
                         type="button"
-                        className="min-w-0 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        className="min-w-0 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         onClick={() => {
                           if (linked) openItem(linked);
                           else {

@@ -87,7 +87,7 @@ it("leaves a discussion selected when another work item requests attention and r
   );
   await using screen = await render(ui(), { router: "/workspace" });
   const board = screen.getByRole("region", { name: "Workspace overview" });
-  await expect.element(board.getByRole("heading").nth(5)).not.toBeInTheDocument();
+  await expect.element(board.getByRole("button", { name: /^Needs you/ })).not.toBeInTheDocument();
   await board.getByRole("region", { name: "Planning" }).getByRole("button").click();
   await expect.element(screen.getByText("Session shape", { exact: true })).toBeVisible();
   await expect.element(board.getByText("Waiting on Shape · Design")).toBeVisible();
@@ -138,7 +138,6 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
   await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
-  await board.getByRole("button", { name: "Needs you 1" }).click();
   await board.getByRole("button", { name: /Which dataset should QA use/ }).click();
   await expect
     .element(screen.getByText("Session verification-worker", { exact: true }))
@@ -148,6 +147,21 @@ it("leaves a discussion selected when another work item requests attention and r
     .toBeVisible();
   await screen.getByRole("button", { name: "Close work panel" }).click();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  const followup = { ...request, id: "second", prompt: "Which region?" };
+  const secondQuestion = {
+    ...snapshot.requests[0]!,
+    key: followup.id,
+    prompt: followup.prompt,
+    request: followup,
+  };
+  snapshot = { ...snapshot, requests: [...snapshot.requests, secondQuestion] };
+  await screen.rerender(ui());
+  await expect.element(needsMe.getByRole("listitem").nth(1)).not.toBeInTheDocument();
+  await expect.element(needsMe.getByRole("button", { name: /Which region/ })).toBeVisible();
+  snapshot = { ...snapshot, requests: [secondQuestion] };
+  await screen.rerender(ui());
+  await expect.element(needsMe.getByRole("button", { name: "Verify", exact: true })).toBeVisible();
+  await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
   const native = {
     key: "native-id",
     environmentId: env,
@@ -167,7 +181,6 @@ it("leaves a discussion selected when another work item requests attention and r
   snapshot = { ...snapshot, requests: [] };
   await screen.rerender(ui());
   await expect.element(screen.getByText(/This request is no longer pending/)).toBeVisible();
-  await board.getByRole("button", { name: "Board", exact: true }).click();
   await expect.element(qaColumn.getByText("Verify", { exact: true })).toBeVisible();
   await expect.element(needsMe.getByRole("button")).not.toBeInTheDocument();
   await screen.getByRole("button", { name: "Open conversation" }).click();

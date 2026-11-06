@@ -19,7 +19,7 @@ Ask the orchestrator to put the item ID in each worker's brief. A worker can cal
 }
 ```
 
-The tool returns the persisted request, including its status and any accepted response. A new question needs a new request ID, even if it repeats an earlier question. Open requests appear in **Needs you** and move their card to the **Needs me** column. Once the last request clears, the card returns to its current work stage. A worker that reports the item complete moves its card to **Done**. An accepted reply goes to the source conversation. Provider approvals use the existing T3 controls. A fully authorized external MCP client can manage the board and publish on behalf of an associated thread. See [Connect an outside agent](outside-agents.md).
+The tool returns the persisted request, including its status and any accepted response. A new question needs a new request ID, even if it repeats an earlier question. A ticket with open requests appears in the **Needs me** list above the board. Select a question or approval there to address it. Once the last request clears, the card returns to its current work stage. A worker that reports the item complete moves its card to **Done**. An accepted reply goes to the source conversation. Provider approvals use the existing T3 controls. A fully authorized external MCP client can manage the board and publish on behalf of an associated thread. See [Connect an outside agent](outside-agents.md).
 
 ## Mirror an existing First Mate task
 

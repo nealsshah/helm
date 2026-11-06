@@ -897,7 +897,7 @@ function WorkspaceAttentionBadge() {
   const needsAttention = useAtomValue(workspaceNeedsAttentionAtom);
   return needsAttention ? (
     <span className="ml-auto rounded bg-warning-surface px-1.5 py-0.5 text-2xs text-warning-foreground">
-      Needs you
+      Needs me
     </span>
   ) : null;
 }
