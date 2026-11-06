@@ -76,7 +76,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
       title: "Shape checkout",
       primaryThreadId: first.id,
       sessions: [{ threadId: archivedWorker.id, role: "Previous worker" }],
-      stage: "shaping",
+      stage: "planning",
     },
     {
       ...base,

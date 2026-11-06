@@ -1,30 +1,20 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import type { PendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
-import type {
-  EnvironmentId,
-  RuntimeRequestId,
-  ThreadId,
-  WorkItem,
-  WorkspaceRequest,
+import {
+  WorkspaceStage,
+  type EnvironmentId,
+  type RuntimeRequestId,
+  type ThreadId,
+  type WorkItem,
+  type WorkspaceRequest,
 } from "@t3tools/contracts";
 
-export const stages = [
-  "backlog",
-  "shaping",
-  "planning",
-  "building",
-  "qa",
-  "review",
-  "complete",
-] as const;
+export const stages = WorkspaceStage.literals;
 export const stageLabel: Record<WorkItem["stage"], string> = {
-  backlog: "Backlog",
-  shaping: "Shaping",
   planning: "Planning",
   building: "Building",
   qa: "QA",
-  review: "Review",
   complete: "Done",
 };
 

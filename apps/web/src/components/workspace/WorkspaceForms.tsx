@@ -250,7 +250,7 @@ function HostCreate({
   const [id, setId] = useWorkspaceTabValue(`new.${prefix}.thread`, "", Schema.String);
   const [title, setTitle] = useWorkspaceTabValue(`new.${prefix}.title`, "", Schema.String);
   const [scope, setScope] = useWorkspaceTabValue(`new.${prefix}.scope`, "", Schema.String);
-  const [stage, setStage] = useWorkspaceTabValue(`new.${prefix}.stage`, "backlog", stageSchema);
+  const [stage, setStage] = useWorkspaceTabValue(`new.${prefix}.stage`, "planning", stageSchema);
   const sessions = state.shells.filter(
     (shell) =>
       shell.environmentId === environmentId &&
@@ -287,7 +287,7 @@ function HostCreate({
           setId("");
           setTitle("");
           setScope("");
-          setStage("backlog");
+          setStage("planning");
           onCreate(environmentId, itemId, source.id);
         });
       }}

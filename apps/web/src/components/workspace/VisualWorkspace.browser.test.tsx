@@ -53,10 +53,10 @@ it("leaves a discussion selected when another work item requests attention and r
   await using _viewport = {
     [Symbol.asyncDispose]: () => page.viewport(previous.width, previous.height),
   };
-  const shape = work("Shape", "shaping"),
+  const shape = work("Shape", "planning"),
     build = work("Implement", "building"),
     qa = work("Verify", "qa"),
-    review = work("Review", "review");
+    review = work("Review", "qa");
   const items = [shape, build, qa, review];
   const worker = ThreadId.make("verification-worker");
   const qaWithWorker = { ...qa, sessions: [{ threadId: worker, role: "QA worker" }] };
@@ -87,7 +87,8 @@ it("leaves a discussion selected when another work item requests attention and r
   );
   await using screen = await render(ui(), { router: "/workspace" });
   const board = screen.getByRole("region", { name: "Workspace overview" });
-  await board.getByRole("region", { name: "Shaping" }).getByRole("button").click();
+  await expect.element(board.getByRole("heading").nth(5)).not.toBeInTheDocument();
+  await board.getByRole("region", { name: "Planning" }).getByRole("button").click();
   await expect.element(screen.getByText("Session shape", { exact: true })).toBeVisible();
   await expect.element(board.getByText("Waiting on Shape · Design")).toBeVisible();
   await board.getByRole("region", { name: "Building" }).getByRole("button").click();
@@ -134,7 +135,7 @@ it("leaves a discussion selected when another work item requests attention and r
   const qaColumn = board.getByRole("region", { name: "QA", exact: true });
   await expect.element(done.getByText("Shape", { exact: true })).toBeVisible();
   await expect.element(needsMe.getByText("Verify", { exact: true })).toBeVisible();
-  await expect.element(qaColumn.getByRole("button")).not.toBeInTheDocument();
+  await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
   await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
   await board.getByRole("button", { name: "Needs you 1" }).click();

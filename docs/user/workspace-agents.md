@@ -2,7 +2,7 @@
 
 Open **Workspace**, choose the conversation you want to use for global direction, and give it a deliverable. A full-access orchestrator in default mode can create work items, set priorities, record decisions, attach evidence, identify dependencies and associate existing worker threads. A worker can read its assigned items, move its own card as work progresses and ask a person for input. These tools run on the environment that owns the threads.
 
-Ask the orchestrator to put the item ID in each worker's brief. A worker can call `t3_workspace_read` to find its item and `callerThreadId`. Use that thread ID in `t3_workspace_update`. When work changes phase, include the new `stage` in a `report` command. For example, a worker can report `review` when checks pass or return the card to `building` when a review finds a bug. For progress within the current phase, send the report with just its text, item ID and thread ID. For a decision, include the exact question and reuse the same request ID on retries.
+Ask the orchestrator to put the item ID in each worker's brief. A worker can call `t3_workspace_read` to find its item and `callerThreadId`. Use that thread ID in `t3_workspace_update`. When work changes phase, include the new `stage` in a `report` command. Workers use **Planning** to scope the work, **Building** to implement or fix it, **QA** to test or review it, and **Done** when the deliverable is verified and complete. For progress within the current phase, send the report with just its text, item ID and thread ID. For a decision, include the exact question and reuse the same request ID on retries.
 
 ```json
 {

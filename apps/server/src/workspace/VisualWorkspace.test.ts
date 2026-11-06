@@ -47,6 +47,7 @@ const dependencies = Layer.mergeAll(
   NodeCrypto.layer,
 );
 const testLayer = Threads.layer.pipe(Layer.provideMerge(dependencies));
+const decodeCommand = Schema.decodeUnknownEffect(WorkspaceAgentCommand);
 const primary = ThreadId.make("primary");
 const worker = ThreadId.make("worker");
 const projectId = ProjectId.make("workspace-test");
@@ -332,7 +333,7 @@ it.effect("reads legacy cards and accepts stage reports from older clients", () 
     ] as const) {
       yield* sql`UPDATE helm_items SET body=json_set(body,'$.stage',${previous}) WHERE id='build'`;
       expect((yield* workspace.get()).items[0]?.stage).toBe(current);
-      const report = yield* Schema.decodeUnknownEffect(WorkspaceAgentCommand)({
+      const report = yield* decodeCommand({
         type: "report",
         threadId: worker,
         itemId: "build",
