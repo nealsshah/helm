@@ -21,7 +21,7 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
       const snapshot = yield* workspace.get().pipe(Effect.mapError(workspaceFailure));
       const managesBoard =
         actor === undefined ||
-        (!actor.subagent && actor.threadId === snapshot.orchestratorThreadId);
+        (!actor.subagent && snapshot.orchestratorThreadIds.includes(actor.threadId));
       if (managesBoard) {
         yield* assertNotLinked(caller, "read this environment's full workspace");
         yield* assertFullAccess(
@@ -84,7 +84,7 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
           }),
       );
       return {
-        orchestratorThreadId: managesBoard ? snapshot.orchestratorThreadId : null,
+        orchestratorThreadIds: managesBoard ? snapshot.orchestratorThreadIds : [],
         items,
         requests: snapshot.requests.filter((request) => itemIds.has(request.itemId)),
         sessions,

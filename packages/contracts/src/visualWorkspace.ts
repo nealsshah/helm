@@ -66,7 +66,7 @@ export const WorkspaceRequest = Schema.Struct({
 });
 export type WorkspaceRequest = typeof WorkspaceRequest.Type;
 export const WorkspaceSnapshot = Schema.Struct({
-  orchestratorThreadId: Schema.NullOr(ThreadId),
+  orchestratorThreadIds: Schema.Array(ThreadId),
   items: Schema.Array(WorkItem),
   requests: Schema.Array(WorkspaceRequest),
 });
@@ -122,6 +122,7 @@ export const WorkspaceAgentCommand = Schema.Union([
 export const WorkspaceCommand = Schema.Union([
   WorkspaceAgentCommand,
   Schema.Struct({ type: Schema.Literal("orchestrator"), threadId: ThreadId }),
+  Schema.Struct({ type: Schema.Literal("closeOrchestrator"), threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("respond"), requestId: Text, response: Text }),
   Schema.Struct({ type: Schema.Literal("obsolete"), requestId: Text, reason: Text }),
 ]);

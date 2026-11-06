@@ -49,7 +49,7 @@ const hiddenRequest = {
   response: null,
 } as const;
 const snapshot: WorkspaceSnapshot = {
-  orchestratorThreadId: unrelated,
+  orchestratorThreadIds: [unrelated],
   items: [hiddenItem],
   requests: [hiddenRequest],
 };
@@ -83,7 +83,7 @@ it.effect("keeps an explicit foreign item and its requests out of a worker's res
         items: [],
         requests: [],
         sessions: [],
-        orchestratorThreadId: null,
+        orchestratorThreadIds: [],
         callerThreadId: worker,
       });
     }
@@ -94,7 +94,7 @@ it.effect("keeps an explicit foreign item and its requests out of a worker's res
 );
 
 it.effect(
-  "denies management to read-only clients and native subagents of the chosen orchestrator",
+  "denies management to read-only clients and native subagents of a registered orchestrator",
   () =>
     Effect.gen(function* () {
       const toolkit = yield* WorkspaceToolkit;

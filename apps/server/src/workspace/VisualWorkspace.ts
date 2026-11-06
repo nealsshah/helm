@@ -64,9 +64,11 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       AND m.thread_id=json_extract(r.body,'$.threadId')
       ${id === undefined ? sql`` : sql`AND r.id=${id}`}`;
   yield* reconcileAccepted().pipe(Effect.orDie);
-  const binding = () =>
-    sql<{ thread_id: string }>`SELECT thread_id FROM helm_binding WHERE id=1`.pipe(
-      Effect.map((rows) => (rows[0] ? ThreadId.make(rows[0].thread_id) : null)),
+  const orchestrators = () =>
+    sql<{ thread_id: string }>`SELECT o.thread_id FROM helm_orchestrators AS o
+      JOIN orchestration_v2_projection_threads AS t ON t.thread_id=o.thread_id
+      WHERE t.deleted_at IS NULL AND t.archived_at IS NULL ORDER BY o.rowid`.pipe(
+      Effect.map((rows) => rows.map((row) => ThreadId.make(row.thread_id))),
     );
   const get = () =>
     sql
@@ -77,7 +79,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
             body: string;
           }>`SELECT body FROM helm_requests ORDER BY rowid`;
           return {
-            orchestratorThreadId: yield* binding(),
+            orchestratorThreadIds: yield* orchestrators(),
             items: yield* Effect.forEach(items, (row) => decodeItem(row.body)),
             requests: yield* Effect.forEach(requests, (row) => decodeRequest(row.body)),
           } satisfies WorkspaceSnapshot;
@@ -246,19 +248,27 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     actor?: { threadId: ThreadId },
   ) {
     if (actor) {
-      if (cmd.type === "obsolete" || cmd.type === "orchestrator")
+      if (
+        cmd.type === "obsolete" ||
+        cmd.type === "orchestrator" ||
+        cmd.type === "closeOrchestrator"
+      )
         return yield* fail("Only a person can change this setting or close a request.");
       if (cmd.type === "request" || cmd.type === "report") {
         if (cmd.threadId !== actor.threadId) return yield* fail("Publish from the calling thread.");
-      } else if ((yield* binding()) !== actor.threadId) {
+      } else if (!(yield* orchestrators()).includes(actor.threadId)) {
         return yield* fail(
-          "Only the configured orchestrator can manage workspace items. To move your assigned card, include stage in a report from your thread.",
+          "Only a workspace orchestrator can manage workspace items. To move your assigned card, include stage in a report from your thread.",
         );
       }
     }
     if (cmd.type === "orchestrator") {
       yield* activeProject(cmd.threadId);
-      yield* sql`INSERT INTO helm_binding(id,thread_id) VALUES (1,${cmd.threadId}) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id`;
+      yield* sql`INSERT INTO helm_orchestrators(thread_id) VALUES (${cmd.threadId}) ON CONFLICT DO NOTHING`;
+      return;
+    }
+    if (cmd.type === "closeOrchestrator") {
+      yield* sql`DELETE FROM helm_orchestrators WHERE thread_id=${cmd.threadId}`;
       return;
     }
     if (cmd.type === "obsolete") {

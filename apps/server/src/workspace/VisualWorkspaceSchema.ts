@@ -11,7 +11,12 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
     delivery_id TEXT
   )`;
   yield* sql`CREATE INDEX IF NOT EXISTS helm_requests_item ON helm_requests(item_id)`;
-  yield* sql`CREATE TABLE IF NOT EXISTS helm_binding (id INTEGER PRIMARY KEY CHECK (id=1), thread_id TEXT NOT NULL)`;
+  yield* sql`CREATE TABLE IF NOT EXISTS helm_orchestrators (thread_id TEXT PRIMARY KEY NOT NULL)`;
+  const legacy = yield* sql`SELECT 1 FROM sqlite_schema WHERE type='table' AND name='helm_binding'`;
+  if (legacy.length > 0) {
+    yield* sql`INSERT OR IGNORE INTO helm_orchestrators(thread_id) SELECT thread_id FROM helm_binding`;
+    yield* sql`DROP TABLE helm_binding`;
+  }
 
   yield* sql`CREATE TABLE IF NOT EXISTS helm_memberships (
     thread_id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES helm_items(id)

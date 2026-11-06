@@ -26,6 +26,7 @@ import * as Replay from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Settings from "../serverSettings.ts";
 import { makeVisualWorkspace } from "./VisualWorkspace.ts";
+import { ensureWorkspaceSchema } from "./VisualWorkspaceSchema.ts";
 
 const dependencies = Layer.mergeAll(
   Replay.layerWithRegistry(
@@ -85,6 +86,30 @@ const fixture = Effect.gen(function* () {
   );
   return w;
 });
+
+it.effect("migrates the current orchestrator and keeps each tab's authority until closed", () =>
+  Effect.gen(function* () {
+    const workspace = yield* fixture;
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE helm_binding (id INTEGER PRIMARY KEY CHECK (id=1), thread_id TEXT NOT NULL)`;
+    yield* sql`INSERT INTO helm_binding VALUES (1,${primary})`;
+    yield* sql.withTransaction(ensureWorkspaceSchema);
+    for (const threadId of [worker, primary]) {
+      yield* workspace.command({ type: "orchestrator", threadId });
+    }
+    const reopened = yield* makeVisualWorkspace;
+    expect((yield* reopened.get()).orchestratorThreadIds).toEqual([primary, worker]);
+    const update = { type: "update", itemId: "build", title: "Ship" } as const;
+    for (const threadId of [primary, worker]) yield* reopened.command(update, { threadId });
+    yield* reopened.command({ type: "closeOrchestrator", threadId: primary });
+    yield* sql.withTransaction(ensureWorkspaceSchema);
+    expect((yield* reopened.get()).orchestratorThreadIds).toEqual([worker]);
+    expect((yield* Effect.flip(reopened.command(update, { threadId: primary }))).message).toContain(
+      "workspace orchestrator",
+    );
+    yield* reopened.command(update, { threadId: worker });
+  }).pipe(Effect.provide(testLayer)),
+);
 
 it.effect(
   "concurrent answers commit one message to the source worker and no message to its primary conversation",
@@ -160,7 +185,7 @@ it.effect(
         (yield* Effect.flip(
           w.command({ type: "update", itemId: "build", stage: "complete" }, { threadId: worker }),
         )).message,
-      ).toContain("configured orchestrator");
+      ).toContain("workspace orchestrator");
       expect(
         (yield* Effect.flip(
           w.command(
