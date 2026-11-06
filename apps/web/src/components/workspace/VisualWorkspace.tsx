@@ -3,7 +3,6 @@ import type { ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   ArrowUpRightIcon,
-  CheckIcon,
   Columns3Icon,
   InboxIcon,
   MessageSquareIcon,
@@ -27,13 +26,12 @@ import {
   type BoardItem,
   type QueueEntry,
 } from "./workspaceModel";
-import { useWorkspaceState, type WorkspaceState } from "./workspaceState";
+import { useWorkspaceState } from "./workspaceState";
 
 function WorkCard({
   entry,
   sessions,
   dependencies,
-  requests,
   connected,
   host,
   selected,
@@ -42,7 +40,6 @@ function WorkCard({
   entry: BoardItem;
   sessions: EnvironmentThreadShell[];
   dependencies: ReturnType<typeof outstandingDependencies>;
-  requests: QueueEntry[];
   connected: boolean;
   host: string;
   selected: boolean;
@@ -94,11 +91,6 @@ function WorkCard({
         </span>
       )}
       <span className="flex flex-wrap items-center gap-1 text-2xs">
-        {requests.length > 0 && (
-          <span className="rounded bg-warning-surface px-1.5 py-0.5 font-medium text-warning-foreground">
-            {requests.length} need{requests.length === 1 ? "s" : ""} you
-          </span>
-        )}
         {item.attention !== "none" && (
           <span className="rounded bg-muted px-1.5 py-0.5 capitalize">{item.attention}</span>
         )}
@@ -128,64 +120,47 @@ function WorkCard({
 
 function RequestRow({
   entry,
-  state,
+  source,
   selected,
   open,
 }: {
   entry: QueueEntry;
-  state: WorkspaceState;
+  source: string | undefined;
   selected: boolean;
   open: () => void;
 }) {
-  const item = state.items.find(
-    (i) => i.environmentId === entry.environmentId && i.item.id === entry.itemId,
-  );
-  const shell = state.shells.find(
-    (s) => s.environmentId === entry.environmentId && s.id === entry.threadId,
-  );
   return (
     <button
       type="button"
       onClick={open}
       aria-pressed={selected}
       className={cn(
-        "flex w-full items-start justify-between gap-2 rounded-lg border p-4 text-left hover:border-foreground/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected ? "border-foreground/50 bg-muted/40" : "border-border bg-card",
+        "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+        selected && "bg-muted",
       )}
     >
-      <span className="grid min-w-0 gap-1.5">
-        <span className="flex flex-wrap items-baseline gap-2 text-xs">
-          <strong className="capitalize text-warning-foreground">{entry.kind}</strong>
-          <span className="text-muted-foreground">{item?.item.title ?? "Unlinked session"}</span>
-        </span>
-        <span className="line-clamp-3 whitespace-pre-line break-words text-sm font-medium">
-          {entry.prompt}
-        </span>
-        {entry.request?.context && (
-          <span className="line-clamp-2 text-xs text-muted-foreground">
-            {entry.request.context}
+      <span className="shrink-0 rounded bg-warning-surface px-1.5 py-0.5 text-2xs font-medium capitalize text-warning-foreground">
+        {entry.kind}
+      </span>
+      <span className="min-w-0 flex-1 text-xs">
+        <span className="line-clamp-2 break-words">{entry.prompt}</span>
+        {(source || entry.request?.status === "delivering") && (
+          <span className="block truncate text-2xs text-muted-foreground">
+            {[source, entry.request?.status === "delivering" ? "Delivery pending" : null]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         )}
-        <span className="text-xs text-muted-foreground">
-          {shell?.title ?? entry.threadId} ·{" "}
-          <time dateTime={entry.createdAt}>{sourceTime(entry.createdAt)}</time>
-          {entry.request?.status === "delivering" ? " · Delivery pending" : ""}
-        </span>
       </span>
-      <ArrowUpRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+      <ArrowUpRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
     </button>
   );
 }
 
-const boardColumns = ["needs-me", ...stages] as const;
-const columnLabel = { ...stageLabel, "needs-me": "Needs me" };
-
-const View = Schema.Literals(["board", "queue"]);
 const Target = Schema.NullOr(PanelTarget);
 
 export function VisualWorkspace() {
   const state = useWorkspaceState();
-  const [view, setView] = useWorkspaceTabValue("view", "board", View);
   const [target, setTarget] = useWorkspaceTabValue("selected", null, Target);
   const [form, setForm] = useState<"new" | "global" | null>(null);
   const [completed, setCompleted] = useWorkspaceTabValue("show-completed", true, Schema.Boolean);
@@ -205,13 +180,20 @@ export function VisualWorkspace() {
   const requests = state.requests.filter(
     (entry) => !environment || entry.environmentId === environment,
   );
-  const cards = visibleItems.map((entry) => {
-    const pending = requests.filter(
-      (request) =>
-        request.environmentId === entry.environmentId && request.itemId === entry.item.id,
-    );
-    return { entry, pending, column: pending.length > 0 ? "needs-me" : entry.item.stage };
-  });
+  const queue = new Map<string, QueueEntry[]>();
+  for (const request of requests) {
+    const key = JSON.stringify([
+      request.environmentId,
+      request.itemId,
+      request.itemId === null ? request.threadId : null,
+    ]);
+    const group = queue.get(key);
+    if (group) group.push(request);
+    else queue.set(key, [request]);
+  }
+  const cards = visibleItems.filter(
+    ({ environmentId, item }) => !queue.has(JSON.stringify([environmentId, item.id, null])),
+  );
   const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
   const hasPanel = form !== null || target !== null;
   function select(target: PanelTarget) {
@@ -223,6 +205,15 @@ export function VisualWorkspace() {
     }
     setForm(null);
     setTarget(target);
+  }
+  function openItem({ environmentId, item }: BoardItem) {
+    setReturnTo(null);
+    const last = lastConversation.current.get(JSON.stringify([environmentId, item.id]));
+    select({
+      environmentId,
+      itemId: item.id,
+      threadId: last && itemHasThread(item, last) ? last : item.primaryThreadId,
+    });
   }
   function close() {
     setForm(null);
@@ -266,24 +257,12 @@ export function VisualWorkspace() {
             size="compact"
             variant="ghost"
             onClick={() => {
-              setView("board");
+              setReturnTo(null);
               setForm(null);
               setTarget(null);
             }}
           >
             <Columns3Icon /> Board
-          </Button>
-          <Button
-            size="compact"
-            variant="ghost"
-            onClick={() => {
-              if (target) setReturnTo(target);
-              setView("queue");
-              setForm(null);
-              setTarget(null);
-            }}
-          >
-            <InboxIcon /> Needs you {requests.length}
           </Button>
         </div>
       )}
@@ -297,43 +276,33 @@ export function VisualWorkspace() {
           className={cn("flex min-h-0 min-w-0 flex-col", hasPanel && "hidden lg:flex")}
           aria-label="Workspace overview"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
-              <Button
-                size="sm"
-                variant={view === "board" ? "outline" : "ghost"}
-                aria-pressed={view === "board"}
-                onClick={() => setView("board")}
-              >
-                <Columns3Icon />
-                Board
-              </Button>
-              <Button
-                size="sm"
-                variant={view === "queue" ? "outline" : "ghost"}
-                aria-pressed={view === "queue"}
-                onClick={() => setView("queue")}
-              >
-                <InboxIcon />
-                Needs you <span className="tabular-nums">{requests.length}</span>
-              </Button>
-            </div>
-            {state.hosts.length > 1 && (
-              <select
-                aria-label="Filter environments"
-                className={field}
-                value={environment}
-                onChange={(e) => setEnvironment(e.target.value)}
-              >
-                <option value="">All environments</option>
-                {state.hosts.map((host) => (
-                  <option key={host.environmentId} value={host.environmentId}>
-                    {host.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {view === "board" && (
+          <section
+            aria-label="Needs me"
+            className="@container flex max-h-[40%] shrink-0 flex-col border-b border-border bg-background"
+          >
+            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
+              <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold">
+                <InboxIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                Needs me
+                <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                  {queue.size}
+                </span>
+              </h2>
+              {state.hosts.length > 1 && (
+                <select
+                  aria-label="Filter environments"
+                  className={field}
+                  value={environment}
+                  onChange={(e) => setEnvironment(e.target.value)}
+                >
+                  <option value="">All environments</option>
+                  {state.hosts.map((host) => (
+                    <option key={host.environmentId} value={host.environmentId}>
+                      {host.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
                   type="checkbox"
@@ -342,8 +311,87 @@ export function VisualWorkspace() {
                 />
                 Show done
               </label>
+            </div>
+            {queue.size > 0 && (
+              <ul className="min-h-0 divide-y divide-border overflow-y-auto overscroll-contain border-t border-border">
+                {Array.from(queue, ([key, entries]) => {
+                  const first = entries[0]!;
+                  const { environmentId, itemId, threadId } = first;
+                  const linked = visibleItems.find(
+                    (entry) => entry.environmentId === environmentId && entry.item.id === itemId,
+                  );
+                  const session = state.shells.find(
+                    (shell) => shell.environmentId === environmentId && shell.id === threadId,
+                  );
+                  const title = linked?.item.title ?? session?.title ?? threadId;
+                  const hostLabel =
+                    hosts.length > 1
+                      ? hosts.find((host) => host.environmentId === environmentId)?.label
+                      : null;
+                  return (
+                    <li
+                      key={key}
+                      className="grid items-start gap-x-3 px-3 py-1 @md:grid-cols-[minmax(8rem,30%)_minmax(0,1fr)]"
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => {
+                          if (linked) openItem(linked);
+                          else {
+                            setReturnTo(null);
+                            select({ environmentId, itemId, threadId });
+                          }
+                        }}
+                      >
+                        <span className="line-clamp-2 break-words">{title}</span>
+                        {hostLabel && (
+                          <span className="block truncate text-2xs font-normal text-muted-foreground">
+                            {hostLabel}
+                          </span>
+                        )}
+                      </button>
+                      <div className="min-w-0">
+                        {entries.map((entry) => {
+                          const source = state.shells.find(
+                            (shell) =>
+                              shell.environmentId === environmentId && shell.id === entry.threadId,
+                          );
+                          return (
+                            <RequestRow
+                              key={entry.key}
+                              entry={entry}
+                              source={source?.title === title ? undefined : source?.title}
+                              selected={
+                                !!target &&
+                                target.environmentId === environmentId &&
+                                target.threadId === entry.threadId &&
+                                target.requestId === entry.request?.id &&
+                                target.nativeRequestId === entry.nativeRequestId
+                              }
+                              open={() => {
+                                if (target && !target.requestId && !target.nativeRequestId)
+                                  setReturnTo(target);
+                                select({
+                                  environmentId,
+                                  itemId,
+                                  threadId: entry.threadId,
+                                  ...(entry.request ? { requestId: entry.request.id } : {}),
+                                  ...(entry.nativeRequestId
+                                    ? { nativeRequestId: entry.nativeRequestId }
+                                    : {}),
+                                });
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </div>
+          </section>
           {hosts.map((host) =>
             host.error || !host.connected || !host.snapshot ? (
               <p
@@ -356,120 +404,62 @@ export function VisualWorkspace() {
               </p>
             ) : null,
           )}
-          {view === "board" ? (
-            <>
-              {visibleItems.length === 0 && (
-                <div className="px-5 pt-5 text-sm text-muted-foreground">
-                  {state.hosts.length === 0
-                    ? "Connect an environment to see its work."
-                    : "Create a work item and choose its primary conversation."}
-                </div>
-              )}
-              <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
-                {boardColumns
-                  .filter((stage) => stage !== "complete" || completed)
-                  .map((stage) => {
-                    const entries = cards.filter((card) => card.column === stage);
-                    return (
-                      <section
-                        aria-label={columnLabel[stage]}
-                        key={stage}
-                        className={cn(
-                          "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
-                          entries.length ? "min-w-44" : "min-w-24",
-                        )}
-                      >
-                        <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
-                          <span>{columnLabel[stage]}</span>
-                          <span className="tabular-nums text-muted-foreground">
-                            {entries.length}
-                          </span>
-                        </h2>
-                        <div className="grid gap-2">
-                          {entries.map(({ entry, pending }) => {
-                            const { environmentId, item } = entry;
-                            const host = hosts.find(
-                              (entry) => entry.environmentId === environmentId,
-                            );
-                            return (
-                              <WorkCard
-                                key={JSON.stringify([environmentId, item.id])}
-                                entry={entry}
-                                dependencies={outstandingDependencies(
-                                  item,
-                                  host?.snapshot?.items ?? [],
-                                )}
-                                host={host?.label ?? environmentId}
-                                connected={host?.connected ?? false}
-                                sessions={state.shells.filter(
-                                  (shell) =>
-                                    shell.environmentId === environmentId &&
-                                    itemHasThread(item, shell.id),
-                                )}
-                                requests={pending}
-                                selected={
-                                  target?.itemId === item.id &&
-                                  target.environmentId === environmentId
-                                }
-                                onClick={() => {
-                                  setReturnTo(null);
-                                  const lastThreadId = lastConversation.current.get(
-                                    JSON.stringify([environmentId, item.id]),
-                                  );
-                                  select({
-                                    environmentId,
-                                    itemId: item.id,
-                                    threadId:
-                                      lastThreadId && itemHasThread(item, lastThreadId)
-                                        ? lastThreadId
-                                        : item.primaryThreadId,
-                                  });
-                                }}
-                              />
-                            );
-                          })}
-                        </div>
-                      </section>
-                    );
-                  })}
-              </div>
-            </>
-          ) : (
-            <div className="grid content-start gap-2 overflow-auto p-4">
-              {requests.length === 0 &&
-                hosts.length > 0 &&
-                hosts.every((host) => host.connected && host.snapshot && !host.error) && (
-                  <p className="flex items-center gap-2 rounded-lg border border-border p-4 text-sm text-muted-foreground">
-                    <CheckIcon size={16} />
-                    No outstanding requests.
-                  </p>
-                )}
-              {requests.map((entry) => (
-                <RequestRow
-                  key={entry.key}
-                  entry={entry}
-                  state={state}
-                  selected={
-                    !!target &&
-                    target.environmentId === entry.environmentId &&
-                    (entry.request?.id
-                      ? entry.request.id === target.requestId
-                      : !!entry.nativeRequestId && entry.nativeRequestId === target.nativeRequestId)
-                  }
-                  open={() => {
-                    if (target && !target.requestId && !target.nativeRequestId) setReturnTo(target);
-                    select({
-                      environmentId: entry.environmentId,
-                      itemId: entry.itemId,
-                      threadId: entry.threadId,
-                      ...(entry.request ? { requestId: entry.request.id } : {}),
-                      ...(entry.nativeRequestId ? { nativeRequestId: entry.nativeRequestId } : {}),
-                    });
-                  }}
-                />
-              ))}
+          {visibleItems.length === 0 && (
+            <div className="px-5 pt-5 text-sm text-muted-foreground">
+              {state.hosts.length === 0
+                ? "Connect an environment to see its work."
+                : "Create a work item and choose its primary conversation."}
             </div>
           )}
+          <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
+            {stages
+              .filter((stage) => stage !== "complete" || completed)
+              .map((stage) => {
+                const entries = cards.filter((card) => card.item.stage === stage);
+                return (
+                  <section
+                    aria-label={stageLabel[stage]}
+                    key={stage}
+                    className={cn(
+                      "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
+                      entries.length ? "min-w-44" : "min-w-24",
+                    )}
+                  >
+                    <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
+                      <span>{stageLabel[stage]}</span>
+                      <span className="tabular-nums text-muted-foreground">{entries.length}</span>
+                    </h2>
+                    <div className="grid gap-2">
+                      {entries.map((entry) => {
+                        const { environmentId, item } = entry;
+                        const host = hosts.find((entry) => entry.environmentId === environmentId);
+                        return (
+                          <WorkCard
+                            key={JSON.stringify([environmentId, item.id])}
+                            entry={entry}
+                            dependencies={outstandingDependencies(
+                              item,
+                              host?.snapshot?.items ?? [],
+                            )}
+                            host={host?.label ?? environmentId}
+                            connected={host?.connected ?? false}
+                            sessions={state.shells.filter(
+                              (shell) =>
+                                shell.environmentId === environmentId &&
+                                itemHasThread(item, shell.id),
+                            )}
+                            selected={
+                              target?.itemId === item.id && target.environmentId === environmentId
+                            }
+                            onClick={() => openItem(entry)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+          </div>
         </section>
         {form ? (
           <aside className="overflow-auto border-l border-border bg-background">
