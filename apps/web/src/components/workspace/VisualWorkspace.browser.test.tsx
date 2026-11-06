@@ -129,6 +129,12 @@ it("leaves a discussion selected when another work item requests attention and r
     hosts: [{ ...host, snapshot: { ...host.snapshot, items: doneWork, requests: [request] } }],
   };
   await screen.rerender(ui());
+  const needsMe = board.getByRole("region", { name: "Needs me" });
+  const done = board.getByRole("region", { name: "Done" });
+  const qaColumn = board.getByRole("region", { name: "QA", exact: true });
+  await expect.element(done.getByText("Shape", { exact: true })).toBeVisible();
+  await expect.element(needsMe.getByText("Verify", { exact: true })).toBeVisible();
+  await expect.element(qaColumn.getByRole("button")).not.toBeInTheDocument();
   await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
   await board.getByRole("button", { name: "Needs you 1" }).click();
@@ -160,6 +166,9 @@ it("leaves a discussion selected when another work item requests attention and r
   snapshot = { ...snapshot, requests: [] };
   await screen.rerender(ui());
   await expect.element(screen.getByText(/This request is no longer pending/)).toBeVisible();
+  await board.getByRole("button", { name: "Board", exact: true }).click();
+  await expect.element(qaColumn.getByText("Verify", { exact: true })).toBeVisible();
+  await expect.element(needsMe.getByRole("button")).not.toBeInTheDocument();
   await screen.getByRole("button", { name: "Open conversation" }).click();
   await expect
     .element(screen.getByText("Session verification-worker", { exact: true }))

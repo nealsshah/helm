@@ -99,7 +99,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await router.load();
   await using screen = await render(<AppRoot router={router} />, { router: false });
   const board = screen.getByRole("region", { name: "Workspace overview" });
-  await board.getByRole("region", { name: "Shaping" }).getByRole("button").click();
+  await board.getByRole("region", { name: "Needs me" }).getByRole("button").click();
   const editor = screen.getByTestId("composer-editor");
   await expect.element(editor).toBeVisible();
   await editor.fill("Unsent shaping direction");
@@ -108,7 +108,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .element(screen.getByText("To Work conversation · Thread implement-sample"))
     .toBeVisible();
   await editor.fill("Unsent implementation direction");
-  await board.getByRole("region", { name: "Shaping" }).getByRole("button").click();
+  await board.getByRole("region", { name: "Needs me" }).getByRole("button").click();
   await expect.element(editor).toHaveTextContent("Unsent shaping direction");
   await board.getByRole("region", { name: "Building" }).getByRole("button").click();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");

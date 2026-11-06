@@ -25,7 +25,7 @@ export const stageLabel: Record<WorkItem["stage"], string> = {
   building: "Building",
   qa: "QA",
   review: "Review",
-  complete: "Complete",
+  complete: "Done",
 };
 
 export interface BoardItem {

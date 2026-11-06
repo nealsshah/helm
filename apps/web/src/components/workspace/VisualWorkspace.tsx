@@ -177,6 +177,9 @@ function RequestRow({
   );
 }
 
+const boardColumns = ["needs-me", ...stages] as const;
+const columnLabel = { ...stageLabel, "needs-me": "Needs me" };
+
 const View = Schema.Literals(["board", "queue"]);
 const Target = Schema.NullOr(PanelTarget);
 
@@ -185,7 +188,7 @@ export function VisualWorkspace() {
   const [view, setView] = useWorkspaceTabValue("view", "board", View);
   const [target, setTarget] = useWorkspaceTabValue("selected", null, Target);
   const [form, setForm] = useState<"new" | "global" | null>(null);
-  const [completed, setCompleted] = useWorkspaceTabValue("show-completed", false, Schema.Boolean);
+  const [completed, setCompleted] = useWorkspaceTabValue("show-completed", true, Schema.Boolean);
   const [storedEnvironment, setEnvironment] = useWorkspaceTabValue(
     "environment",
     "",
@@ -202,6 +205,12 @@ export function VisualWorkspace() {
   const requests = state.requests.filter(
     (entry) => !environment || entry.environmentId === environment,
   );
+  const cards = visibleItems.map((entry) => {
+    const pending = requests.filter(
+      (request) => request.environmentId === entry.environmentId && request.itemId === entry.item.id,
+    );
+    return { entry, pending, column: pending.length > 0 ? "needs-me" : entry.item.stage };
+  });
   const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
   const hasPanel = form !== null || target !== null;
   function select(target: PanelTarget) {
@@ -330,7 +339,7 @@ export function VisualWorkspace() {
                   checked={completed}
                   onChange={(e) => setCompleted(e.target.checked)}
                 />
-                Completed
+                Show done
               </label>
             )}
           </div>
@@ -355,25 +364,28 @@ export function VisualWorkspace() {
                     : "Create a work item and choose its primary conversation."}
                 </div>
               )}
-              <div className="grid min-h-0 flex-1 auto-cols-[minmax(11rem,1fr)] grid-flow-col gap-2 overflow-auto p-3">
-                {stages
+              <div className="flex min-h-0 flex-1 gap-2 overflow-auto p-3">
+                {boardColumns
                   .filter((stage) => stage !== "complete" || completed)
                   .map((stage) => {
-                    const entries = visibleItems.filter((entry) => entry.item.stage === stage);
+                    const entries = cards.filter((card) => card.column === stage);
                     return (
                       <section
-                        aria-label={stageLabel[stage]}
+                        aria-label={columnLabel[stage]}
                         key={stage}
-                        className="min-h-full rounded-lg bg-muted/40 p-2"
+                        className={cn(
+                          "min-h-full flex-1 rounded-lg bg-muted/40 p-2",
+                          entries.length ? "min-w-44" : "min-w-24",
+                        )}
                       >
                         <h2 className="mb-3 flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold">
-                          <span>{stageLabel[stage]}</span>
+                          <span>{columnLabel[stage]}</span>
                           <span className="tabular-nums text-muted-foreground">
                             {entries.length}
                           </span>
                         </h2>
                         <div className="grid gap-2">
-                          {entries.map((entry) => {
+                          {entries.map(({ entry, pending }) => {
                             const { environmentId, item } = entry;
                             const host = hosts.find(
                               (entry) => entry.environmentId === environmentId,
@@ -393,9 +405,7 @@ export function VisualWorkspace() {
                                     shell.environmentId === environmentId &&
                                     itemHasThread(item, shell.id),
                                 )}
-                                requests={requests.filter(
-                                  (r) => r.environmentId === environmentId && r.itemId === item.id,
-                                )}
+                                requests={pending}
                                 selected={
                                   target?.itemId === item.id &&
                                   target.environmentId === environmentId
