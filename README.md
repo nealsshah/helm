@@ -1,4 +1,32 @@
-# T3 Code
+# Helm
+
+Helm is a personal fork of T3 Code for managing concurrent agent work. Open **Workspace** in the sidebar to see work by stage, answer requests, and return to a discussion.
+
+## Run Helm locally
+
+Open **Helm** from your Mac’s Applications folder. The desktop app opens the workspace in T3’s Electron shell and runs its own local server. It keeps its data under `~/.helm`.
+
+To build and install the desktop app from this checkout, use Node 26.12.1 and pnpm 12.14.0, then run:
+
+```sh
+./scripts/build-helm-mac.sh
+open "$HOME/Applications/Helm.app"
+```
+
+The installer produces a locally signed app for this Mac. Rebuild it to pick up changes from the fork.
+
+For development, run these commands from the repository root and open the pairing URL printed by the runner.
+
+```sh
+pnpm install --frozen-lockfile
+T3CODE_DEV_SEED=0 pnpm dev --home-dir "$PWD/.t3"
+```
+
+Open **Workspace** in the sidebar. Choose **New item** to give an existing conversation a title and stage. Choose **Global direction** to designate the conversation that coordinates work. To connect existing First Mate tasks or publish updates from workers, see [Direct work through the workspace](./docs/user/workspace-agents.md).
+
+Helm tracks the [T3 Code Nightly release from November 5, 2026](https://github.com/pingdotgg/t3code/tree/8b570d282b5f50709185fbd26f8e36872ddafdeb). The distribution links below install upstream T3 Code.
+
+## Upstream T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 

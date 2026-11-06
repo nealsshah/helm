@@ -1,3 +1,4 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -369,7 +370,8 @@ export const make = Effect.gen(function* () {
   > {
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
     yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const origin = getDesktopUrl(environment.isDevelopment);
+    const applicationUrl = isHelmBuild(environment.appVersion) ? `${origin}#/workspace` : origin;
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;

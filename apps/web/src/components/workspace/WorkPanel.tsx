@@ -1,0 +1,378 @@
+import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentId, WorkItem, WorkspaceCommand } from "@t3tools/contracts";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronRightIcon, ExternalLinkIcon, XIcon } from "lucide-react";
+import * as Schema from "effect/Schema";
+import { type PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
+import { serverEnvironment } from "../../state/server";
+import ChatView from "../ChatView";
+import { ComposerHandleContext } from "../../composerHandleContext";
+import { BackgroundThreadContext } from "../chat/backgroundThread";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { field, RequestResponse, useDelivery } from "./WorkspaceForms";
+import {
+  itemHasThread,
+  outstandingDependencies,
+  runtimeLabel,
+  safeArtifactUrl,
+  sourceTime,
+  stageLabel,
+  stages,
+} from "./workspaceModel";
+import { useWorkspaceCommand, type WorkspaceState } from "./workspaceState";
+
+export function WorkPanel({
+  state,
+  target,
+  select,
+  close,
+}: {
+  state: WorkspaceState;
+  target: PanelTarget;
+  select: (target: PanelTarget) => void;
+  close: () => void;
+}) {
+  const { environmentId, itemId, threadId } = target;
+  const navigate = useNavigate();
+  const host = state.hosts.find((entry) => entry.environmentId === environmentId);
+  const item = host?.snapshot?.items.find((entry) => entry.id === itemId);
+  const shell = state.shells.find(
+    (entry) => entry.environmentId === environmentId && entry.id === threadId,
+  );
+  const request = host?.snapshot?.requests.find((entry) => entry.id === target.requestId);
+  const currentNative =
+    !target.nativeRequestId ||
+    state.requests.some(
+      (entry) =>
+        entry.environmentId === environmentId &&
+        entry.threadId === threadId &&
+        entry.nativeRequestId === target.nativeRequestId,
+    );
+  const detached = Boolean(item && !itemHasThread(item, threadId));
+  const currentOrchestrator = host?.snapshot?.orchestratorThreadId;
+  const changedOrchestrator = target.global && currentOrchestrator !== threadId;
+  const nextThread = detached
+    ? item?.primaryThreadId
+    : changedOrchestrator
+      ? currentOrchestrator
+      : threadId;
+  const role = target.global
+    ? "Global direction"
+    : item?.primaryThreadId === threadId
+      ? "Work conversation"
+      : (item?.sessions.find((entry) => entry.threadId === threadId)?.role ?? "Session");
+  const destination = `${role} · ${shell?.title ?? threadId}`;
+  const history =
+    host?.snapshot?.requests.filter(
+      (entry) => item && entry.itemId === item.id && entry.id !== request?.id,
+    ) ?? [];
+  return (
+    <aside
+      aria-label="Work panel"
+      className="flex min-h-0 min-w-0 flex-col border-l border-border bg-background"
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs text-muted-foreground">
+            {host?.label} ·{" "}
+            {target.global ? "Orchestrator" : item ? stageLabel[item.stage] : "Unlinked session"}
+          </p>
+          <h2 className="truncate font-semibold">{item?.title ?? shell?.title ?? threadId}</h2>
+        </div>
+        <Link
+          to="/$environmentId/$threadId"
+          params={{ environmentId, threadId }}
+          className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
+          aria-label="Open full session"
+        >
+          <ExternalLinkIcon size={16} />
+        </Link>
+        <Button variant="ghost" size="icon-sm" aria-label="Close work panel" onClick={close}>
+          <XIcon />
+        </Button>
+      </div>
+      <div
+        className={
+          target.requestId ? "min-h-0 overflow-auto" : "max-h-[45%] shrink-0 overflow-auto"
+        }
+      >
+        {item && (
+          <details
+            key={JSON.stringify([environmentId, item.id])}
+            className="border-b border-border px-4 py-2 text-sm"
+          >
+            <summary className="cursor-pointer font-medium">Scope, decisions and links</summary>
+            <div className="mt-2 grid gap-2">
+              <p className="whitespace-pre-wrap text-muted-foreground">
+                {item.scope || "No scope recorded."}
+              </p>
+              {outstandingDependencies(item, host?.snapshot?.items ?? []).map((dep) => (
+                <p key={dep.itemId}>
+                  Waiting on {dep.title} · {dep.owner}
+                </p>
+              ))}
+              {item.decisions.map((decision) => (
+                <p key={JSON.stringify([decision.createdAt, decision.author, decision.text])}>
+                  {decision.text}{" "}
+                  <small className="text-muted-foreground">
+                    {decision.author} · {sourceTime(decision.createdAt)}
+                  </small>
+                </p>
+              ))}
+              {item.artifacts.map((artifact) => {
+                const url = safeArtifactUrl(artifact.url);
+                return (
+                  <p key={artifact.url}>
+                    {url ? (
+                      <a className="underline" href={url} target="_blank" rel="noreferrer">
+                        {artifact.label}
+                      </a>
+                    ) : (
+                      <span>
+                        {artifact.label} · {artifact.url}
+                      </span>
+                    )}
+                  </p>
+                );
+              })}
+              {item.latestReport && (
+                <p className="whitespace-pre-wrap text-muted-foreground">
+                  {item.latestReport.format === "legacy" ? "Legacy update" : "Worker update"} ·{" "}
+                  {state.shells.find(
+                    (s) =>
+                      s.environmentId === environmentId && s.id === item.latestReport?.threadId,
+                  )?.title ?? item.latestReport.threadId}{" "}
+                  · {sourceTime(item.latestReport.reportedAt)}
+                  <br />
+                  {item.latestReport.text}
+                </p>
+              )}
+              <ItemSettings item={item} environmentId={environmentId} state={state} />
+            </div>
+          </details>
+        )}
+        {item && (
+          <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
+            <label htmlFor="workspace-conversation">Conversation</label>
+            <select
+              id="workspace-conversation"
+              className={field}
+              value={threadId}
+              onChange={(event) => {
+                const next = [item.primaryThreadId, ...item.sessions.map((s) => s.threadId)].find(
+                  (id) => id === event.target.value,
+                );
+                if (next) select({ environmentId, itemId, threadId: next });
+              }}
+            >
+              {[
+                { threadId: item.primaryThreadId, role: "Primary" },
+                ...item.sessions.filter((entry) => entry.threadId !== item.primaryThreadId),
+              ].map((session) => {
+                const source = state.shells.find(
+                  (entry) => entry.environmentId === environmentId && entry.id === session.threadId,
+                );
+                return (
+                  <option key={session.threadId} value={session.threadId}>
+                    {session.role} · {source?.title ?? session.threadId} ·{" "}
+                    {runtimeLabel(source, host?.connected ?? false)}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+        {request && (
+          <div className="p-3">
+            <RequestResponse
+              key={JSON.stringify([environmentId, request.id])}
+              connected={host?.connected ?? false}
+              environmentId={environmentId}
+              request={request}
+              source={shell?.title ?? threadId}
+            />
+          </div>
+        )}
+        {target.nativeRequestId && !currentNative && (
+          <p role="status" className="p-3 text-sm">
+            {host?.connected
+              ? "This request is no longer pending."
+              : "Disconnected. Request status will refresh on reconnect."}{" "}
+          </p>
+        )}
+        {history.length > 0 && (
+          <details className="border-b border-border px-4 py-2 text-xs">
+            <summary className="cursor-pointer">Requests ({history.length})</summary>
+            {history.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className="flex w-full gap-1 py-2 text-left hover:underline"
+                onClick={() =>
+                  select({ environmentId, itemId, threadId: entry.threadId, requestId: entry.id })
+                }
+              >
+                <ChevronRightIcon size={14} />
+                {entry.prompt} · {entry.status}
+              </button>
+            ))}
+          </details>
+        )}
+      </div>
+      <div
+        data-side-chat-pane
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        {shell && currentNative && !target.requestId && !detached && !changedOrchestrator ? (
+          <BackgroundThreadContext value>
+            <ComposerHandleContext value={null}>
+              <ChatView
+                environmentId={environmentId}
+                threadId={threadId}
+                routeKind="server"
+                onDiffPanelOpen={() => {
+                  void navigate({
+                    to: "/$environmentId/$threadId",
+                    params: { environmentId, threadId },
+                  });
+                }}
+                reserveTitleBarControlInset={false}
+                workspaceDestination={{
+                  label: destination,
+                  ...(target.nativeRequestId ? { requestId: target.nativeRequestId } : {}),
+                }}
+              />
+            </ComposerHandleContext>
+          </BackgroundThreadContext>
+        ) : (
+          <div className="p-4 text-sm text-muted-foreground">
+            {(detached || changedOrchestrator) && (
+              <p className="mb-2">
+                {target.global
+                  ? "The orchestrator destination changed."
+                  : "This worker is no longer linked to the work item."}
+              </p>
+            )}
+            {!nextThread ||
+            (!shell && !target.requestId && currentNative && !detached && !changedOrchestrator) ? (
+              "Session unavailable. Its workspace records are retained here."
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  select({
+                    environmentId,
+                    itemId,
+                    threadId: nextThread,
+                    ...(target.global ? { global: true } : {}),
+                  })
+                }
+              >
+                Open conversation
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function ItemSettings({
+  item,
+  environmentId,
+  state,
+}: {
+  item: WorkItem;
+  environmentId: EnvironmentId;
+  state: WorkspaceState;
+}) {
+  const run = useWorkspaceCommand();
+  const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
+  const delivery = useDelivery();
+  const draftKey = JSON.stringify([environmentId, item.id]);
+  const [session, setSession] = useWorkspaceTabValue(`worker.${draftKey}`, "", Schema.String);
+  const [role, setRole] = useWorkspaceTabValue(`role.${draftKey}`, "", Schema.String);
+  const choices = state.shells.filter(
+    (shell) =>
+      shell.environmentId === environmentId &&
+      !shell.archivedAt &&
+      !shell.deletedAt &&
+      !state.items.some(
+        (entry) => entry.environmentId === environmentId && itemHasThread(entry.item, shell.id),
+      ),
+  );
+  const commit = (command: WorkspaceCommand) => delivery.submit(() => run(environmentId, command));
+  return (
+    <fieldset
+      disabled={!allowed || delivery.busy}
+      className="space-y-3 border-t border-border py-2"
+    >
+      <label className="flex items-center gap-2 text-xs">
+        Stage
+        <select
+          value={item.stage}
+          className={field}
+          onChange={(event) => {
+            const stage = stages.find((value) => value === event.target.value);
+            if (stage) void commit({ type: "update", itemId: item.id, stage });
+          }}
+        >
+          {stages.map((stage) => (
+            <option key={stage} value={stage}>
+              {stageLabel[stage]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <form
+        className="flex flex-wrap gap-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const source = choices.find((s) => s.id === session);
+          if (!source || !role.trim()) return;
+          void delivery.submit(async () => {
+            await run(environmentId, {
+              type: "associate",
+              itemId: item.id,
+              threadId: source.id,
+              role: role.trim(),
+            });
+            setSession("");
+            setRole("");
+          });
+        }}
+      >
+        <select
+          aria-label="Worker session"
+          className={field}
+          value={session}
+          onChange={(e) => setSession(e.target.value)}
+        >
+          <option value="">Link worker session</option>
+          {choices.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+        <Input
+          aria-label="Worker role"
+          placeholder="Role"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+        />
+        <Button type="submit" variant="outline" size="sm" disabled={!session || !role.trim()}>
+          Link session
+        </Button>
+      </form>
+      {delivery.error && (
+        <p role="alert" className="text-destructive">
+          {delivery.error}
+        </p>
+      )}
+    </fieldset>
+  );
+}

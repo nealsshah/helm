@@ -92,6 +92,8 @@ Any agent that supports remote MCP servers over HTTP with OAuth can connect. Giv
 it the MCP URL and choose OAuth, and the agent finds the sign-in settings itself.
 Agents without OAuth support cannot connect.
 
+To organize assigned work and route questions directly to a worker, see [Direct work through the workspace](workspace-agents.md).
+
 ## Scripts on the host
 
 On the machine that runs the environment, `t3 thread` uses the same tools

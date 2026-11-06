@@ -1,0 +1,167 @@
+import {
+  EnvironmentId,
+  RuntimeRequestId,
+  ThreadId,
+  type WorkItem,
+  type WorkspaceRequest,
+} from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
+import { expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
+import { render } from "../../../test/render";
+import { makeThreadFixture } from "../../test-fixtures";
+import { SidebarProvider } from "../ui/sidebar";
+import type { WorkspaceState } from "./workspaceState";
+import { VisualWorkspace } from "./VisualWorkspace";
+
+let snapshot: WorkspaceState;
+vi.mock("./workspaceState", () => ({
+  useWorkspaceState: () => snapshot,
+  useWorkspaceCommand: () => vi.fn(),
+}));
+vi.mock("../../state/server", () => ({
+  serverEnvironment: { workspaceCommand: { permissionAtom: () => Atom.make(true) } },
+}));
+vi.mock("../ChatView", () => ({
+  default: ({ threadId }: { threadId: string }) => <p>Session {threadId}</p>,
+}));
+
+const env = EnvironmentId.make("test-server");
+const timestamp = "2026-11-06T18:00:00Z";
+function work(title: string, stage: WorkItem["stage"]): WorkItem {
+  return {
+    id: title,
+    title,
+    scope: "",
+    stage,
+    attention: "none",
+    priority: 0,
+    primaryThreadId: ThreadId.make(title.toLowerCase()),
+    sessions: [],
+    artifacts: [],
+    dependencies: [],
+    decisions: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    latestReport: null,
+  };
+}
+
+it("leaves a discussion selected when another work item requests attention and returns after inspecting it", async () => {
+  const previous = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1440, 900);
+  await using _viewport = {
+    [Symbol.asyncDispose]: () => page.viewport(previous.width, previous.height),
+  };
+  const shape = work("Shape", "shaping"),
+    build = work("Implement", "building"),
+    qa = work("Verify", "qa"),
+    review = work("Review", "review");
+  const items = [shape, build, qa, review];
+  const worker = ThreadId.make("verification-worker");
+  const qaWithWorker = { ...qa, sessions: [{ threadId: worker, role: "QA worker" }] };
+  const shapedBuild = { ...build, dependencies: [{ itemId: shape.id, owner: "Design" }] };
+  const workItems = [shape, shapedBuild, qaWithWorker, review];
+  const host = {
+    environmentId: env,
+    label: "Local",
+    connected: true,
+    error: null,
+    snapshot: { orchestratorThreadId: null, items: workItems, requests: [] },
+  };
+  snapshot = {
+    hosts: [host],
+    items: workItems.map((item) => ({ environmentId: env, item })),
+    requests: [],
+    shells: [
+      ...items.map((item) =>
+        makeThreadFixture({ id: item.primaryThreadId, environmentId: env, title: item.title }),
+      ),
+      makeThreadFixture({ id: worker, environmentId: env, title: "Verification worker" }),
+    ],
+  };
+  const ui = () => (
+    <SidebarProvider defaultOpen>
+      <VisualWorkspace />
+    </SidebarProvider>
+  );
+  await using screen = await render(ui(), { router: "/workspace" });
+  const board = screen.getByRole("region", { name: "Workspace overview" });
+  await board.getByRole("region", { name: "Shaping" }).getByRole("button").click();
+  await expect.element(screen.getByText("Session shape", { exact: true })).toBeVisible();
+  await expect.element(board.getByText("Waiting on Shape · Design")).toBeVisible();
+  await board.getByRole("region", { name: "Building" }).getByRole("button").click();
+  const request: WorkspaceRequest = {
+    id: "confirm",
+    kind: "question",
+    itemId: qa.id,
+    threadId: worker,
+    prompt: "Which dataset should QA use?",
+    context: "The test fixtures differ by region.",
+    choices: ["US", "EU"],
+    createdAt: timestamp,
+    status: "open",
+    response: null,
+    resolvedAt: null,
+  };
+  snapshot = {
+    ...snapshot,
+    hosts: [{ ...host, snapshot: { ...host.snapshot, requests: [request] } }],
+    requests: [
+      {
+        key: "confirm",
+        environmentId: env,
+        itemId: qa.id,
+        threadId: worker,
+        kind: "question",
+        prompt: request.prompt,
+        createdAt: timestamp,
+        request,
+      },
+    ],
+  };
+  const doneWork = workItems.map((item) =>
+    item.id === shape.id ? { ...item, stage: "complete" as const } : item,
+  );
+  snapshot = {
+    ...snapshot,
+    items: doneWork.map((item) => ({ environmentId: env, item })),
+    hosts: [{ ...host, snapshot: { ...host.snapshot, items: doneWork, requests: [request] } }],
+  };
+  await screen.rerender(ui());
+  await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
+  await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  await board.getByRole("button", { name: "Needs you 1" }).click();
+  await board.getByRole("button", { name: /Which dataset should QA use/ }).click();
+  await expect
+    .element(screen.getByText("Session verification-worker", { exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("textbox", { name: "Reply to Verification worker" }))
+    .toBeVisible();
+  await screen.getByRole("button", { name: "Close work panel" }).click();
+  await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  const native = {
+    key: "native-id",
+    environmentId: env,
+    itemId: null,
+    threadId: worker,
+    kind: "Question",
+    prompt: "Which revision?",
+    createdAt: timestamp,
+    nativeRequestId: RuntimeRequestId.make("native-id"),
+  };
+  snapshot = { ...snapshot, requests: [native] };
+  await screen.rerender(ui());
+  await board.getByRole("button", { name: /Which revision/ }).click();
+  await expect
+    .element(screen.getByText("Session verification-worker", { exact: true }))
+    .toBeVisible();
+  snapshot = { ...snapshot, requests: [] };
+  await screen.rerender(ui());
+  await expect.element(screen.getByText(/This request is no longer pending/)).toBeVisible();
+  await screen.getByRole("button", { name: "Open conversation" }).click();
+  await expect
+    .element(screen.getByText("Session verification-worker", { exact: true }))
+    .toBeVisible();
+});

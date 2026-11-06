@@ -17,6 +17,7 @@ import {
   TurnItemId,
   WS_METHODS,
   WsRpcGroup,
+  type WorkspaceSnapshot,
   type VcsStatusStreamEvent,
   type OrchestrationProjectShell,
   type OrchestrationV2ProjectedTurnItem,
@@ -58,7 +59,7 @@ const descriptor = {
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true },
+  capabilities: { repositoryIdentity: true, visualWorkspace: true },
 };
 const auth = {
   policy: "loopback-browser",
@@ -185,6 +186,8 @@ function run(threadId: ThreadId, id: RunId, ordinal: number, userMessageId: stri
 export interface FakeThread {
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
+  readonly archived?: boolean;
+  readonly runtimeRequests?: OrchestrationV2ThreadProjection["runtimeRequests"];
   readonly id: ThreadId;
   readonly title: string;
   readonly runs: ReadonlyArray<OrchestrationV2Run>;
@@ -248,7 +251,7 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
     visibleItemCount: thread.items.length,
     createdAt: AT,
     updatedAt: AT,
-    archivedAt: null,
+    archivedAt: thread.archived ? AT : null,
     settledOverride: null,
     settledAt: null,
     lastVisitedAt: AT,
@@ -285,7 +288,7 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
       creationSource: "web",
       createdAt: AT,
       updatedAt: AT,
-      archivedAt: null,
+      archivedAt: shell.archivedAt,
       settledOverride: null,
       settledAt: null,
       lastVisitedAt: AT,
@@ -298,7 +301,7 @@ function projectionOf(thread: FakeThread): OrchestrationV2ThreadProjection {
     providerSessions: [],
     providerThreads: [],
     providerTurns: [],
-    runtimeRequests: [],
+    runtimeRequests: thread.runtimeRequests ?? [],
     messages: [],
     plans: [],
     turnItems: [...thread.items],
@@ -334,7 +337,11 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
     }),
   );
 
+const emptyWorkspace: WorkspaceSnapshot = { orchestratorThreadId: null, items: [], requests: [] };
+let workspace = emptyWorkspace;
+
 const handlers: Record<string, (input: never) => unknown> = {
+  [WS_METHODS.workspaceSubscribe]: () => subscribe([workspace]),
   [WS_METHODS.subscribeTerminalMetadata]: () =>
     subscribe<TerminalMetadataStreamEvent>([{ type: "snapshot", terminals: [] }], (queue) => {
       terminalMetadataSubscriber = queue;
@@ -350,7 +357,7 @@ const handlers: Record<string, (input: never) => unknown> = {
           schemaVersion: 1,
           snapshotSequence: sequence,
           projects: [project],
-          threads: threads.map(shellOf),
+          threads: threads.filter((thread) => !thread.archived).map(shellOf),
           archivedThreads: [],
         },
       },
@@ -433,7 +440,11 @@ const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
 );
 
 /** Serves the environment's HTTP API and these threads until disposed. */
-export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Disposable {
+export function installFakeEnvironment(
+  fixtures: ReadonlyArray<FakeThread>,
+  workspaceSnapshot: WorkspaceSnapshot = emptyWorkspace,
+): Disposable {
+  workspace = workspaceSnapshot;
   threads = fixtures;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
@@ -456,6 +467,7 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
     [Symbol.dispose]: () => {
       globalThis.fetch = realFetch;
       threads = [];
+      workspace = emptyWorkspace;
     },
   };
 }

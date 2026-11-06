@@ -1,3 +1,4 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 import { createClerkBridge } from "@clerk/electron";
 import * as NodeURL from "node:url";
 import { storage } from "@clerk/electron/storage";
@@ -85,7 +86,12 @@ export const desktopClerkFrontendApiHostname = resolveDesktopClerkFrontendApiHos
     : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
 );
 
-function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean, userDataPath: string) {
+function createDesktopClerkBridge(
+  stateDir: string,
+  isDevelopment: boolean,
+  userDataPath: string,
+  appVersion: string,
+) {
   return createClerkBridge({
     storage: openClerkTokenStorage(
       stateDir,
@@ -94,10 +100,16 @@ function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean, user
     ),
     manageSingleInstanceLock: false,
     passkeys: true,
-    renderer: {
-      scheme: ElectronProtocol.getDesktopScheme(isDevelopment),
-      host: ElectronProtocol.DESKTOP_HOST,
-    },
+    // Clerk claims its renderer scheme as a global OAuth handler. The local Helm
+    // distribution shares T3's internal renderer origin but must never claim T3's links.
+    ...(isHelmBuild(appVersion)
+      ? {}
+      : {
+          renderer: {
+            scheme: ElectronProtocol.getDesktopScheme(isDevelopment),
+            host: ElectronProtocol.DESKTOP_HOST,
+          },
+        }),
   });
 }
 
@@ -137,7 +149,12 @@ export const make = Effect.gen(function* () {
   yield* Effect.acquireRelease(
     Effect.try({
       try: () =>
-        createDesktopClerkBridge(environment.stateDir, environment.isDevelopment, userDataPath),
+        createDesktopClerkBridge(
+          environment.stateDir,
+          environment.isDevelopment,
+          userDataPath,
+          environment.appVersion,
+        ),
       catch: (cause) =>
         new DesktopClerkBridgeInitializationError({
           stateDir: environment.stateDir,

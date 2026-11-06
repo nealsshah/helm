@@ -1,3 +1,4 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,
@@ -103,6 +104,7 @@ export function resolveDesktopAppBranding(input: {
   readonly appVersion: string;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
+  if (isHelmBuild(input.appVersion)) return { baseName: "Helm", stageLabel, displayName: "Helm" };
   return {
     baseName: APP_BASE_NAME,
     stageLabel,
@@ -146,7 +148,8 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const path = yield* Path.Path;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
-  const devServerUrl = config.devServerUrl;
+  const helm = isHelmBuild(input.appVersion);
+  const devServerUrl = helm ? Option.none<URL>() : config.devServerUrl;
   const isDevelopment = Option.isSome(devServerUrl);
   const appDataDirectory =
     input.platform === "win32"
@@ -156,11 +159,13 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const baseDir = resolveDesktopBaseDir({
-    homeDirectory,
-    joinPath: path.join,
-    t3Home: config.t3Home,
-  });
+  const baseDir = helm
+    ? path.join(homeDirectory, ".helm")
+    : resolveDesktopBaseDir({
+        homeDirectory,
+        joinPath: path.join,
+        t3Home: config.t3Home,
+      });
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const serverRoot =

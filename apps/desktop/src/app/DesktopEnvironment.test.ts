@@ -70,6 +70,13 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(development.stateDir, "/Users/alice/.t3/dev");
       assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      const helm = yield* makeEnvironment(
+        { appVersion: "0.1.8-helm.1", isPackaged: true },
+        { T3CODE_HOME: "/Users/alice/.t3", VITE_DEV_SERVER_URL: "http://localhost:5173" },
+      );
+      assert.equal(helm.stateDir, "/Users/alice/.helm/userdata");
+      assert.equal(helm.displayName, "Helm");
+      assert.isFalse(helm.isDevelopment);
     }),
   );
 });

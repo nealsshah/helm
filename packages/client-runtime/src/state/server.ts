@@ -1323,6 +1323,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:webhook-delivery",
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
+    workspaceLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:workspace:live",
+      tag: WS_METHODS.workspaceSubscribe,
+    }),
+    workspaceCommand: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workspace:command",
+      tag: WS_METHODS.workspaceCommand,
+    }),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,

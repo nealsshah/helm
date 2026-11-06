@@ -1373,6 +1373,30 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
       taskIds: [followup.delegatedTaskId],
       childThreadId: task.childThreadId!,
     });
+
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO helm_items(id, body) VALUES ('research', '{}')`;
+    yield* sql`INSERT INTO helm_memberships(thread_id, item_id) VALUES (${task.childThreadId!}, 'research')`;
+    const directQuestion = requestEvent(
+      "event:workspace-question",
+      "request:workspace-question",
+      "live",
+      "user_input",
+      followup,
+    );
+    yield* eventSink.write({ events: [directQuestion] });
+    yield* reactor.handle(directQuestion);
+    const parentAfterQuestion = yield* projections.getThreadRecords(parentThreadId, ["messages"]);
+    assert.isFalse(
+      parentAfterQuestion.messages.some((message) =>
+        message.text.includes(`requestId ${directQuestion.payload.id}`),
+      ),
+    );
+    assert.equal(
+      (yield* projections.getRuntimeRequest(task.childThreadId!, directQuestion.payload.id))
+        ?.status,
+      "pending",
+    );
   }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
 );
 

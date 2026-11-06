@@ -35,6 +35,7 @@ import {
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
+import { WorkspaceCommand, WorkspaceError, WorkspaceSnapshot } from "./visualWorkspace.ts";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -538,6 +539,9 @@ export const WS_METHODS = {
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
 
+  workspaceGet: "workspace.get",
+  workspaceCommand: "workspace.command",
+  workspaceSubscribe: "workspace.subscribe",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
@@ -1905,6 +1909,24 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const workspaceRpc = {
+  success: WorkspaceSnapshot,
+  error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
+};
+const WsWorkspaceGetRpc = Rpc.make(WS_METHODS.workspaceGet, {
+  ...workspaceRpc,
+  payload: Schema.Struct({}),
+});
+const WsWorkspaceCommandRpc = Rpc.make(WS_METHODS.workspaceCommand, {
+  ...workspaceRpc,
+  payload: Schema.Struct({ command: WorkspaceCommand }),
+});
+const WsWorkspaceSubscribeRpc = Rpc.make(WS_METHODS.workspaceSubscribe, {
+  ...workspaceRpc,
+  payload: Schema.Struct({}),
+  stream: true,
+});
+
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2050,6 +2072,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsWorkspaceGetRpc,
+  WsWorkspaceCommandRpc,
+  WsWorkspaceSubscribeRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,

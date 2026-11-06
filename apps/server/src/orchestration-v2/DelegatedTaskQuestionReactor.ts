@@ -10,9 +10,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { reportLabel } from "@t3tools/provider-core/server/notification";
 
+import { workspaceOwnsThread } from "../workspace/VisualWorkspaceSchema.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -26,6 +28,7 @@ export class DelegatedTaskQuestionReactor extends Context.Service<
 >()("t3/orchestration-v2/DelegatedTaskQuestionReactor") {}
 
 const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
 
@@ -34,6 +37,8 @@ const make = Effect.gen(function* () {
     request: OrchestrationV2RuntimeRequest,
   ) {
     if (task.childThreadId === null) return;
+    // The workspace presents associated workers' questions directly to the person.
+    if (yield* workspaceOwnsThread(sql, task.childThreadId)) return;
     const key = `${task.threadId}:${request.id}`;
     const label = reportLabel(task.title?.trim() || task.prompt);
     const situation =

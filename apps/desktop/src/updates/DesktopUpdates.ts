@@ -1,3 +1,4 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 import {
   DESKTOP_UPDATE_RESTART_MARKER_FILE,
   DesktopUpdateChannelSchema,
@@ -468,7 +469,7 @@ export const make = Effect.gen(function* () {
         platform: environment.platform,
         appImage: Option.getOrUndefined(config.appImagePath),
         isDebPackage,
-        disabledByEnv: config.disableAutoUpdate,
+        disabledByEnv: isHelmBuild(environment.appVersion) || config.disableAutoUpdate,
         hasUpdateFeedConfig: hasFeedConfig,
       }),
     );

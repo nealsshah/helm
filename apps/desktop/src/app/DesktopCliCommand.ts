@@ -1,3 +1,4 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- FileSystem.access has no execute check.
 import * as NodeFSP from "node:fs/promises";
 
@@ -64,6 +65,19 @@ export class DesktopCliCommand extends Context.Service<
 
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  if (isHelmBuild(environment.appVersion)) {
+    const unsupported = Effect.succeed({
+      supported: false,
+      installedPath: null,
+      onPath: false,
+      launcherPath: null,
+    } as const);
+    return DesktopCliCommand.of({
+      state: unsupported,
+      install: unsupported,
+      uninstall: unsupported,
+    });
+  }
   const fs = yield* FileSystem.FileSystem;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   // Read the live env: shell discovery patches PATH after startup, and Windows variable

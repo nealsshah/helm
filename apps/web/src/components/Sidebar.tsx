@@ -65,6 +65,7 @@ import {
   ChevronDownIcon,
   FolderIcon,
   ListFilterIcon,
+  PanelsTopLeftIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -79,7 +80,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { type AnyRouter, useRouter } from "@tanstack/react-router";
+import { type AnyRouter, Link, useRouter } from "@tanstack/react-router";
 
 import {
   isAtomCommandInterrupted,
@@ -250,6 +251,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { workspaceNeedsAttentionAtom } from "./workspace/workspaceState";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
@@ -889,6 +891,15 @@ function readRouteThreadKey(router: AnyRouter): string | null {
       : null;
   const ref = resolveActiveThreadRouteRef(target, draft);
   return ref === null ? null : scopedThreadKey(ref);
+}
+
+function WorkspaceAttentionBadge() {
+  const needsAttention = useAtomValue(workspaceNeedsAttentionAtom);
+  return needsAttention ? (
+    <span className="ml-auto rounded bg-warning-surface px-1.5 py-0.5 text-2xs text-warning-foreground">
+      Needs you
+    </span>
+  ) : null;
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
@@ -2970,6 +2981,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
+            <Link
+              to="/workspace"
+              onClick={() => {
+                if (isMobile) setOpenMobile(false);
+              }}
+              className="mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              activeProps={{ className: "bg-accent" }}
+            >
+              <PanelsTopLeftIcon className="size-4" /> Workspace <WorkspaceAttentionBadge />
+            </Link>
             <SidebarThreadHeader
               hasProjects={projectGroups.length > 0}
               projectScope={

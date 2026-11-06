@@ -115,6 +115,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
         );
         expect(descriptor.capabilities).toMatchObject({
           settledWorktreeCleanup: true,
+          visualWorkspace: true,
           storageCleanupRun: true,
           projectWorktreeCleanup: true,
           worktreesDirectory: true,
