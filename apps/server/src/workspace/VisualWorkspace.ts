@@ -376,6 +376,13 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         const reportedAt = cmd.reportedAt ?? timestamp;
         if (!Number.isFinite(Date.parse(reportedAt)))
           return yield* fail("Use a valid report timestamp.");
+        if (cmd.stage === "complete") {
+          yield* sql`UPDATE helm_requests
+            SET body=json_set(body,'$.status','obsolete','$.resolvedAt',${timestamp},
+              '$.response','The worker marked this work complete.')
+            WHERE item_id=${item.id} AND json_extract(body,'$.threadId')=${cmd.threadId}
+              AND json_extract(body,'$.status')='open'`;
+        }
         // Workers and imported files have independent clocks. Arrival at the owning server orders reports.
         item = {
           ...item,

@@ -302,6 +302,23 @@ it.effect(
     }).pipe(Effect.provide(testLayer)),
 );
 
+it.effect(
+  "completion retires the reporting worker's open questions without sending another reply",
+  () =>
+    Effect.gen(function* () {
+      const workspace = yield* fixture;
+      const complete = (threadId: ThreadId) =>
+        workspace.command(
+          { type: "report", itemId: "build", threadId, text: "Finished", stage: "complete" },
+          { threadId },
+        );
+      expect((yield* complete(primary)).requests[0]?.status).toBe("open");
+      expect((yield* complete(worker)).requests[0]?.status).toBe("obsolete");
+      const t3 = yield* Orchestrator.OrchestratorV2;
+      expect((yield* t3.getThreadRecords(worker, ["messages"])).messages).toHaveLength(0);
+    }).pipe(Effect.provide(testLayer)),
+);
+
 it.effect("assigned workers move a card forward and back when their report changes its stage", () =>
   Effect.gen(function* () {
     const workspace = yield* fixture;
