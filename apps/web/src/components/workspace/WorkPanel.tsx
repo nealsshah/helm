@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, WorkItem, WorkspaceCommand } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, ExternalLinkIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, XIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { type PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
 import { serverEnvironment } from "../../state/server";
@@ -10,7 +10,7 @@ import { ComposerHandleContext } from "../../composerHandleContext";
 import { BackgroundThreadContext } from "../chat/backgroundThread";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { field, RequestResponse, useDelivery } from "./WorkspaceForms";
+import { field, useDelivery } from "./WorkspaceForms";
 import {
   itemHasThread,
   outstandingDependencies,
@@ -40,15 +40,6 @@ export function WorkPanel({
   const shell = state.shells.find(
     (entry) => entry.environmentId === environmentId && entry.id === threadId,
   );
-  const request = host?.snapshot?.requests.find((entry) => entry.id === target.requestId);
-  const currentNative =
-    !target.nativeRequestId ||
-    state.requests.some(
-      (entry) =>
-        entry.environmentId === environmentId &&
-        entry.threadId === threadId &&
-        entry.nativeRequestId === target.nativeRequestId,
-    );
   const detached = Boolean(item && !itemHasThread(item, threadId));
   const currentOrchestrator = host?.snapshot?.orchestratorThreadId;
   const changedOrchestrator = target.global && currentOrchestrator !== threadId;
@@ -63,10 +54,6 @@ export function WorkPanel({
       ? "Work conversation"
       : (item?.sessions.find((entry) => entry.threadId === threadId)?.role ?? "Session");
   const destination = `${role} · ${shell?.title ?? threadId}`;
-  const history =
-    host?.snapshot?.requests.filter(
-      (entry) => item && entry.itemId === item.id && entry.id !== request?.id,
-    ) ?? [];
   return (
     <aside
       aria-label="Work panel"
@@ -92,11 +79,7 @@ export function WorkPanel({
           <XIcon />
         </Button>
       </div>
-      <div
-        className={
-          target.requestId ? "min-h-0 overflow-auto" : "max-h-[45%] shrink-0 overflow-auto"
-        }
-      >
+      <div className="max-h-[45%] shrink-0 overflow-auto">
         {item && (
           <details
             key={JSON.stringify([environmentId, item.id])}
@@ -183,48 +166,12 @@ export function WorkPanel({
             </select>
           </div>
         )}
-        {request && (
-          <div className="p-3">
-            <RequestResponse
-              key={JSON.stringify([environmentId, request.id])}
-              connected={host?.connected ?? false}
-              environmentId={environmentId}
-              request={request}
-              source={shell?.title ?? threadId}
-            />
-          </div>
-        )}
-        {target.nativeRequestId && !currentNative && (
-          <p role="status" className="p-3 text-sm">
-            {host?.connected
-              ? "This request is no longer pending."
-              : "Disconnected. Request status will refresh on reconnect."}{" "}
-          </p>
-        )}
-        {history.length > 0 && (
-          <details className="border-b border-border px-4 py-2 text-xs">
-            <summary className="cursor-pointer">Requests ({history.length})</summary>
-            {history.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className="flex w-full gap-1 py-2 text-left hover:underline"
-                onClick={() =>
-                  select({ environmentId, itemId, threadId: entry.threadId, requestId: entry.id })
-                }
-              >
-                <ChevronRightIcon size={14} />
-                {entry.prompt} · {entry.status}
-              </button>
-            ))}
-          </details>
-        )}
       </div>
       <div
         data-side-chat-pane
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
-        {shell && currentNative && !target.requestId && !detached && !changedOrchestrator ? (
+        {shell && !detached && !changedOrchestrator ? (
           <BackgroundThreadContext value>
             <ComposerHandleContext value={null}>
               <ChatView
@@ -238,10 +185,7 @@ export function WorkPanel({
                   });
                 }}
                 reserveTitleBarControlInset={false}
-                workspaceDestination={{
-                  label: destination,
-                  ...(target.nativeRequestId ? { requestId: target.nativeRequestId } : {}),
-                }}
+                workspaceDestination={{ label: destination }}
               />
             </ComposerHandleContext>
           </BackgroundThreadContext>
@@ -255,7 +199,7 @@ export function WorkPanel({
               </p>
             )}
             {!nextThread ||
-            (!shell && !target.requestId && currentNative && !detached && !changedOrchestrator) ? (
+            (!shell && !detached && !changedOrchestrator) ? (
               "Session unavailable. Its workspace records are retained here."
             ) : (
               <Button

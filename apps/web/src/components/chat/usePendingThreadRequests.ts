@@ -113,7 +113,6 @@ function makePendingCustomAnswerSetter(input: {
 }
 
 export function usePendingThreadRequests(input: {
-  readonly focusedRequestId?: RuntimeRequestId | undefined;
   readonly environmentId: EnvironmentId;
   readonly activeThreadId: ThreadId | null;
   readonly serverProjection: ThreadStructure | null;
@@ -151,21 +150,10 @@ export function usePendingThreadRequests(input: {
   >([]);
   const setPendingUserInputAnswersByRequestId = usePendingUserInputAnswers.setState;
   const setPendingUserInputQuestionIndexByRequestId = usePendingUserInputQuestionIndex.setState;
-  const allPendingRequests =
+  const pendingRequests =
     serverProjection !== null && serverProjection.thread.id === activeThreadId
       ? derivePendingThreadRequests(serverProjection)
       : NO_PENDING_REQUESTS;
-  const pendingRequests =
-    input.focusedRequestId === undefined
-      ? allPendingRequests
-      : {
-          approvals: allPendingRequests.approvals.filter(
-            (request) => request.requestId === input.focusedRequestId,
-          ),
-          userInputs: allPendingRequests.userInputs.filter(
-            (request) => request.requestId === input.focusedRequestId,
-          ),
-        };
   // The projection changes on every streamed event, so shared empties keep the
   // composer and approval panel from re-rendering while nothing is pending.
   const pendingApprovals =

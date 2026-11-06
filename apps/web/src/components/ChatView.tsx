@@ -62,7 +62,6 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
-  type RuntimeRequestId,
   type PreviewAnnotationPayload,
   ProviderInstanceId,
   type ServerProvider,
@@ -389,7 +388,6 @@ const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 
 interface WorkspaceChatDestination {
   label: string;
-  requestId?: RuntimeRequestId;
 }
 
 type ChatViewProps =
@@ -1352,7 +1350,6 @@ export default function ChatView(props: ChatViewProps) {
     onAdvanceActivePendingUserInputStable,
     onPreviousActivePendingUserInputQuestion: onPreviousActivePendingUserInputQuestionStable,
   } = usePendingThreadRequests({
-    focusedRequestId: props.workspaceDestination?.requestId,
     environmentId,
     activeThreadId,
     serverProjection,
@@ -3553,9 +3550,7 @@ export default function ChatView(props: ChatViewProps) {
                         To {props.workspaceDestination.label}
                       </p>
                     )}
-                    {!props.workspaceDestination?.requestId && (
-                      <ChildThreadApprovals threadRef={activeThreadRef} />
-                    )}
+                    <ChildThreadApprovals threadRef={activeThreadRef} />
                     <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}
@@ -3629,11 +3624,7 @@ export default function ChatView(props: ChatViewProps) {
                               canResume={resumableRunId !== null || hasHeldQueuedRuns}
                               isRevertingCheckpoint={isRevertingCheckpoint}
                               sendDisabledReason={
-                                props.workspaceDestination?.requestId &&
-                                !activePendingApproval &&
-                                !activePendingUserInput
-                                  ? "This request is no longer pending."
-                                  : !canOperateThread
+                                !canOperateThread
                                     ? "This connection cannot change threads."
                                     : isEnvironmentChanging
                                       ? "Preparing machine"

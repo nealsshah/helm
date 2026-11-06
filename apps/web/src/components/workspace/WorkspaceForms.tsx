@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ThreadId, WorkspaceRequest } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useRef, useState } from "react";
 import { randomUUID } from "../../lib/utils";
@@ -8,7 +8,7 @@ import { serverEnvironment } from "../../state/server";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
-import { sourceTime, stageLabel, stages, itemHasThread } from "./workspaceModel";
+import { stageLabel, stages, itemHasThread } from "./workspaceModel";
 import { useWorkspaceCommand, type WorkspaceState } from "./workspaceState";
 
 export const field =
@@ -31,161 +31,6 @@ export function useDelivery() {
     setBusy(false);
   }
   return { busy, error, submit };
-}
-
-export function RequestResponse({
-  environmentId,
-  request,
-  source,
-  connected,
-}: {
-  environmentId: EnvironmentId;
-  request: WorkspaceRequest;
-  source: string;
-  connected: boolean;
-}) {
-  const run = useWorkspaceCommand();
-  const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
-  const [draft, setDraft] = useWorkspaceTabValue(
-    `workspace.reply.${JSON.stringify([environmentId, request.id])}`,
-    "",
-    Schema.String,
-  );
-  const delivery = useDelivery();
-  const error = delivery.error || request.deliveryError;
-  const [closing, setClosing] = useState(false);
-  const [reason, setReason] = useState("");
-  const text = request.status === "delivering" ? (request.response ?? draft) : draft;
-  return (
-    <section className="space-y-2 rounded-lg border border-border bg-card p-3 text-sm">
-      <div className="flex justify-between gap-2 text-xs text-muted-foreground">
-        <span className="capitalize">
-          {request.kind} · {source}
-        </span>
-        <time dateTime={request.createdAt}>{sourceTime(request.createdAt)}</time>
-      </div>
-      <p className="whitespace-pre-wrap font-medium">{request.prompt}</p>
-      {request.context && (
-        <p className="whitespace-pre-wrap text-muted-foreground">{request.context}</p>
-      )}
-      {request.status === "open" || request.status === "delivering" ? (
-        <form
-          className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!allowed || !connected || !text.trim()) return;
-            void delivery.submit(async () => {
-              await run(environmentId, {
-                type: "respond",
-                requestId: request.id,
-                response: text.trim(),
-              });
-              setDraft("");
-            });
-          }}
-        >
-          {request.choices.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {request.choices.map((choice) => (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="compact"
-                  key={choice}
-                  disabled={request.status !== "open" || delivery.busy || !allowed}
-                  onClick={() => setDraft(choice)}
-                >
-                  {choice}
-                </Button>
-              ))}
-            </div>
-          )}
-          <label className="grid gap-1 text-xs">
-            Reply to {source}
-            <Textarea
-              value={text}
-              disabled={delivery.busy || request.status === "delivering" || !allowed || !connected}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-          </label>
-          <Button
-            size="sm"
-            type="submit"
-            disabled={delivery.busy || !allowed || !connected || !text.trim()}
-          >
-            {delivery.busy
-              ? "Sending…"
-              : request.status === "delivering"
-                ? "Retry delivery"
-                : "Send answer"}
-          </Button>
-          {request.status === "delivering" && (
-            <span role="status" className="ml-2 text-xs">
-              Delivery pending
-            </span>
-          )}
-        </form>
-      ) : (
-        <p className="text-xs">
-          <strong>{request.status === "accepted" ? "Answer delivered" : "Request obsolete"}</strong>{" "}
-          · {request.response}{" "}
-          {request.resolvedAt && (
-            <time dateTime={request.resolvedAt}>{sourceTime(request.resolvedAt)}</time>
-          )}
-        </p>
-      )}
-      {(request.status === "open" || request.status === "delivering") &&
-        (closing ? (
-          <form
-            className="grid gap-2 border-t border-border pt-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!allowed || !connected || !reason.trim()) return;
-              void delivery.submit(() =>
-                run(environmentId, {
-                  type: "obsolete",
-                  requestId: request.id,
-                  reason: reason.trim(),
-                }),
-              );
-            }}
-          >
-            <label className="grid gap-1 text-xs">
-              Why is this request obsolete?
-              <Input required value={reason} onChange={(event) => setReason(event.target.value)} />
-            </label>
-            <div className="flex gap-2">
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                disabled={!allowed || !connected || delivery.busy || !reason.trim()}
-              >
-                Mark obsolete
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setClosing(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <Button
-            size="compact"
-            variant="ghost-muted"
-            type="button"
-            disabled={!allowed || !connected || delivery.busy}
-            onClick={() => setClosing(true)}
-          >
-            Close request…
-          </Button>
-        ))}
-      {error && (
-        <p role="alert" className="text-destructive">
-          {error}
-        </p>
-      )}
-    </section>
-  );
 }
 
 export function ItemCreate({

@@ -101,8 +101,11 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   const board = screen.getByRole("region", { name: "Workspace overview" });
   await board
     .getByRole("region", { name: "Needs me" })
-    .getByRole("button", { name: "Shape checkout", exact: true })
+    .getByRole("button", { name: "Thread archived-worker", exact: true })
     .click();
+  const conversation = screen.getByRole("combobox", { name: "Conversation", exact: true });
+  await expect.element(conversation).toHaveValue(archivedWorker.id);
+  await conversation.selectOptions(first.id);
   const editor = screen.getByTestId("composer-editor");
   await expect.element(editor).toBeVisible();
   await editor.fill("Unsent shaping direction");
@@ -113,8 +116,10 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await editor.fill("Unsent implementation direction");
   await board
     .getByRole("region", { name: "Needs me" })
-    .getByRole("button", { name: "Shape checkout", exact: true })
+    .getByRole("button", { name: "Thread archived-worker", exact: true })
     .click();
+  await expect.element(conversation).toHaveValue(archivedWorker.id);
+  await conversation.selectOptions(first.id);
   await expect.element(editor).toHaveTextContent("Unsent shaping direction");
   await board.getByRole("region", { name: "Building" }).getByRole("button").click();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");
@@ -128,6 +133,6 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .toBeVisible();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");
   await expect
-    .element(board.getByRole("button", { name: /Review approval.*Thread archived-worker/ }))
+    .element(board.getByRole("button", { name: "Thread archived-worker", exact: true }))
     .toBeVisible();
 });

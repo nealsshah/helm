@@ -1,4 +1,4 @@
-import { EnvironmentId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useState } from "react";
 
@@ -7,8 +7,6 @@ export const PanelTarget = Schema.Struct({
   threadId: ThreadId,
   itemId: Schema.NullOr(Schema.String),
   global: Schema.optionalKey(Schema.Boolean),
-  requestId: Schema.optionalKey(Schema.String),
-  nativeRequestId: Schema.optionalKey(RuntimeRequestId),
 });
 export type PanelTarget = typeof PanelTarget.Type;
 

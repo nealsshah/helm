@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import type { ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
-  ArrowUpRightIcon,
   Columns3Icon,
   InboxIcon,
   MessageSquareIcon,
@@ -118,48 +117,6 @@ function WorkCard({
   );
 }
 
-const requestAction: Record<string, string> = {
-  question: "Answer question",
-  approval: "Review approval",
-  review: "Review request",
-  error: "Inspect issue",
-};
-
-function RequestRow({
-  entry,
-  source,
-  selected,
-  open,
-}: {
-  entry: QueueEntry;
-  source: string | undefined;
-  selected: boolean;
-  open: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={open}
-      aria-pressed={selected}
-      className={cn(
-        "group grid w-full min-w-0 gap-2 rounded-md px-2 py-2 text-left hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected && "bg-muted",
-      )}
-    >
-      <span className="line-clamp-2 break-words text-xs leading-relaxed">{entry.prompt}</span>
-      <span className="flex min-w-0 items-center gap-1.5 text-2xs">
-        <span className="shrink-0 font-semibold text-warning-foreground group-hover:underline">
-          {entry.request?.status === "delivering"
-            ? "Delivery pending"
-            : (requestAction[entry.kind.toLowerCase()] ?? "Open request")}
-        </span>
-        <ArrowUpRightIcon aria-hidden="true" className="size-3 shrink-0 text-warning-foreground" />
-        {source && <span className="ml-auto truncate text-muted-foreground">{source}</span>}
-      </span>
-    </button>
-  );
-}
-
 const Target = Schema.NullOr(PanelTarget);
 
 export function VisualWorkspace() {
@@ -182,24 +139,20 @@ export function VisualWorkspace() {
   const requests = state.requests.filter(
     (entry) => !environment || entry.environmentId === environment,
   );
-  const queue = new Map<string, QueueEntry[]>();
-  for (const request of requests) {
-    const key = JSON.stringify([
-      request.environmentId,
-      request.itemId,
-      request.itemId === null ? request.threadId : null,
-    ]);
-    const group = queue.get(key);
-    if (group) group.push(request);
-    else queue.set(key, [request]);
+  const queue = new Map<string, QueueEntry>();
+  const waitingItems = new Set<string>();
+  for (const entry of requests) {
+    const key = JSON.stringify([entry.environmentId, entry.threadId]);
+    if (!queue.has(key)) queue.set(key, entry);
+    if (entry.itemId) waitingItems.add(JSON.stringify([entry.environmentId, entry.itemId]));
   }
   const cards = visibleItems.filter(
-    ({ environmentId, item }) => !queue.has(JSON.stringify([environmentId, item.id, null])),
+    ({ environmentId, item }) => !waitingItems.has(JSON.stringify([environmentId, item.id])),
   );
   const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
   const hasPanel = form !== null || target !== null;
   function select(target: PanelTarget) {
-    if (target.itemId && !target.requestId && !target.nativeRequestId) {
+    if (target.itemId) {
       lastConversation.current.set(
         JSON.stringify([target.environmentId, target.itemId]),
         target.threadId,
@@ -308,8 +261,7 @@ export function VisualWorkspace() {
             </div>
             {queue.size > 0 && (
               <ul className="flex min-h-0 snap-x snap-proximity items-stretch gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 scroll-px-3">
-                {Array.from(queue, ([key, entries]) => {
-                  const first = entries[0]!;
+                {Array.from(queue, ([key, first]) => {
                   const { environmentId, itemId, threadId } = first;
                   const linked = visibleItems.find(
                     (entry) => entry.environmentId === environmentId && entry.item.id === itemId,
@@ -317,75 +269,31 @@ export function VisualWorkspace() {
                   const session = state.shells.find(
                     (shell) => shell.environmentId === environmentId && shell.id === threadId,
                   );
-                  const title = linked?.item.title ?? session?.title ?? threadId;
+                  const title = session?.title ?? linked?.item.title ?? threadId;
                   const hostLabel =
                     hosts.length > 1
                       ? hosts.find((host) => host.environmentId === environmentId)?.label
                       : null;
                   return (
-                    <li
-                      key={key}
-                      className="flex min-h-0 w-72 max-w-[88%] shrink-0 snap-start flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xs"
-                    >
+                    <li key={key} className="flex w-72 max-w-[88%] shrink-0 snap-start">
                       <button
                         type="button"
                         aria-label={title}
-                        className="group min-w-0 shrink-0 px-3 pt-2.5 pb-2 text-left hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        aria-pressed={target?.environmentId === environmentId && target.threadId === threadId}
+                        className="group relative grid w-full content-start gap-1.5 rounded-lg border border-warning/40 bg-card px-3 py-2.5 text-left shadow-xs hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring after:pointer-events-none after:absolute after:-inset-px after:rounded-[inherit] after:border-2 after:border-warning/80 after:opacity-60 motion-safe:after:animate-attention"
                         onClick={() => {
-                          if (linked) openItem(linked);
-                          else {
-                            setReturnTo(null);
-                            select({ environmentId, itemId, threadId });
-                          }
+                          if (target?.threadId !== threadId || target.environmentId !== environmentId) setReturnTo(target);
+                          select({ environmentId, itemId, threadId });
                         }}
                       >
-                        <span className="mb-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
-                          <span
-                            aria-hidden="true"
-                            className="size-1.5 shrink-0 rounded-full bg-warning/75 motion-safe:animate-attention"
-                          />
+                        <span className="truncate text-2xs text-muted-foreground">
                           {linked ? stageLabel[linked.item.stage] : "Session"}
-                          {hostLabel && <span className="truncate">· {hostLabel}</span>}
+                          {linked && linked.item.title !== title && ` · ${linked.item.title}`}
+                          {hostLabel && ` · ${hostLabel}`}
                         </span>
-                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">
-                          {title}
-                        </span>
+                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">{title}</span>
+                        <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">{first.prompt}</span>
                       </button>
-                      <div className="mx-1 mb-1 min-h-0 min-w-0 flex-1 divide-y divide-border/60 overflow-y-auto overscroll-y-contain border-t border-border/70">
-                        {entries.map((entry) => {
-                          const source = state.shells.find(
-                            (shell) =>
-                              shell.environmentId === environmentId && shell.id === entry.threadId,
-                          );
-                          return (
-                            <RequestRow
-                              key={entry.key}
-                              entry={entry}
-                              source={source?.title === title ? undefined : source?.title}
-                              selected={
-                                !!target &&
-                                target.environmentId === environmentId &&
-                                target.threadId === entry.threadId &&
-                                target.requestId === entry.request?.id &&
-                                target.nativeRequestId === entry.nativeRequestId
-                              }
-                              open={() => {
-                                if (target && !target.requestId && !target.nativeRequestId)
-                                  setReturnTo(target);
-                                select({
-                                  environmentId,
-                                  itemId,
-                                  threadId: entry.threadId,
-                                  ...(entry.request ? { requestId: entry.request.id } : {}),
-                                  ...(entry.nativeRequestId
-                                    ? { nativeRequestId: entry.nativeRequestId }
-                                    : {}),
-                                });
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
                     </li>
                   );
                 })}

@@ -1,6 +1,5 @@
 import {
   EnvironmentId,
-  RuntimeRequestId,
   ThreadId,
   type WorkItem,
   type WorkspaceRequest,
@@ -134,57 +133,31 @@ it("leaves a discussion selected when another work item requests attention and r
   const done = board.getByRole("region", { name: "Done" });
   const qaColumn = board.getByRole("region", { name: "QA", exact: true });
   await expect.element(done.getByText("Shape", { exact: true })).toBeVisible();
-  await expect.element(needsMe.getByText("Verify", { exact: true })).toBeVisible();
+  await expect.element(needsMe.getByText("Verification worker", { exact: true })).toBeVisible();
   await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
   await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
-  await board.getByRole("button", { name: /Which dataset should QA use/ }).click();
-  await expect
-    .element(screen.getByText("Session verification-worker", { exact: true }))
-    .not.toBeInTheDocument();
-  await expect
-    .element(screen.getByRole("textbox", { name: "Reply to Verification worker" }))
-    .toBeVisible();
+  const workerCard = needsMe.getByRole("button", { name: "Verification worker" });
+  await workerCard.click();
+  await expect.element(screen.getByText("Session verification-worker", { exact: true })).toBeVisible();
   await screen.getByRole("button", { name: "Close work panel" }).click();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
-  const followup = { ...request, id: "second", prompt: "Which region?" };
-  const secondQuestion = {
-    ...snapshot.requests[0]!,
-    key: followup.id,
-    prompt: followup.prompt,
-    request: followup,
-  };
-  snapshot = { ...snapshot, requests: [...snapshot.requests, secondQuestion] };
+
+  const original = snapshot.requests[0]!;
+  const primary = { ...original, key: "primary", threadId: qa.primaryThreadId, prompt: "Review the proposed plan" };
+  snapshot = { ...snapshot, requests: [original, { ...original, key: "followup" }, primary] };
   await screen.rerender(ui());
-  await expect.element(needsMe.getByRole("listitem").nth(1)).not.toBeInTheDocument();
-  await expect.element(needsMe.getByRole("button", { name: /Which region/ })).toBeVisible();
-  snapshot = { ...snapshot, requests: [secondQuestion] };
+  await expect.element(needsMe.getByRole("listitem").nth(2)).not.toBeInTheDocument();
+  await expect.element(workerCard).toBeVisible();
+  await needsMe.getByRole("button", { name: "Verify", exact: true }).click();
+  await expect.element(screen.getByText("Session verify", { exact: true })).toBeVisible();
+  snapshot = { ...snapshot, requests: [primary] };
   await screen.rerender(ui());
-  await expect.element(needsMe.getByRole("button", { name: "Verify", exact: true })).toBeVisible();
+  await expect.element(workerCard).not.toBeInTheDocument();
   await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
-  const native = {
-    key: "native-id",
-    environmentId: env,
-    itemId: null,
-    threadId: worker,
-    kind: "Question",
-    prompt: "Which revision?",
-    createdAt: timestamp,
-    nativeRequestId: RuntimeRequestId.make("native-id"),
-  };
-  snapshot = { ...snapshot, requests: [native] };
-  await screen.rerender(ui());
-  await board.getByRole("button", { name: /Which revision/ }).click();
-  await expect
-    .element(screen.getByText("Session verification-worker", { exact: true }))
-    .toBeVisible();
   snapshot = { ...snapshot, requests: [] };
   await screen.rerender(ui());
-  await expect.element(screen.getByText(/This request is no longer pending/)).toBeVisible();
   await expect.element(qaColumn.getByText("Verify", { exact: true })).toBeVisible();
   await expect.element(needsMe.getByRole("button")).not.toBeInTheDocument();
-  await screen.getByRole("button", { name: "Open conversation" }).click();
-  await expect
-    .element(screen.getByText("Session verification-worker", { exact: true }))
-    .toBeVisible();
+  await expect.element(screen.getByText("Session verify", { exact: true })).toBeVisible();
 });
