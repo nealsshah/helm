@@ -23,7 +23,7 @@ const hiddenItem = {
   id: "private",
   title: "Other work",
   scope: "",
-  stage: "shaping",
+  stage: "planning",
   priority: 0,
   attention: "none",
   primaryThreadId: unrelated,

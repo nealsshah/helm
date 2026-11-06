@@ -1,15 +1,25 @@
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ThreadId, TrimmedNonEmptyString as Text, IsoDateTime } from "./baseSchemas.ts";
 
-export const WorkspaceStage = Schema.Literals([
-  "backlog",
-  "shaping",
-  "planning",
-  "building",
-  "qa",
-  "review",
-  "complete",
-]);
+export const WorkspaceStage = Schema.Literals(["planning", "building", "qa", "complete"]);
+const previousStages = Schema.Literals(["backlog", "shaping", "review"]);
+const wireStage = Schema.String.pipe(
+  Schema.refine(Schema.is(Schema.Union([WorkspaceStage, previousStages])), {
+    expected: "a workspace stage",
+    toJsonSchema: () => [{ enum: [...WorkspaceStage.literals] }, true],
+  }),
+  Schema.decodeTo(
+    WorkspaceStage,
+    SchemaTransformation.transform({
+      decode: (stage) => {
+        if (stage === "backlog" || stage === "shaping") return "planning";
+        return stage === "review" ? "qa" : stage;
+      },
+      encode: (stage) => stage,
+    }),
+  ),
+);
 export const WorkspaceAttention = Schema.Literals(["active", "waiting", "paused", "none"]);
 const Session = Schema.Struct({ threadId: ThreadId, role: Text });
 const Artifact = Schema.Struct({ label: Text, url: Text });
@@ -26,7 +36,7 @@ export const WorkItem = Schema.Struct({
   id: Text,
   title: Text,
   scope: Schema.String,
-  stage: WorkspaceStage,
+  stage: wireStage,
   attention: WorkspaceAttention,
   priority: Schema.Int,
   primaryThreadId: ThreadId,
@@ -68,14 +78,14 @@ export const WorkspaceAgentCommand = Schema.Union([
     title: Text,
     primaryThreadId: ThreadId,
     scope: Schema.optional(Schema.String),
-    stage: Schema.optional(WorkspaceStage),
+    stage: Schema.optional(wireStage),
   }),
   Schema.Struct({
     type: Schema.Literal("update"),
     itemId: Text,
     title: Schema.optional(Text),
     scope: Schema.optional(Schema.String),
-    stage: Schema.optional(WorkspaceStage),
+    stage: Schema.optional(wireStage),
     attention: Schema.optional(WorkspaceAttention),
     priority: Schema.optional(Schema.Int),
     dependencies: Schema.optional(Schema.Array(Dependency)),
@@ -104,7 +114,7 @@ export const WorkspaceAgentCommand = Schema.Union([
     itemId: Text,
     threadId: ThreadId,
     text: Text,
-    stage: Schema.optional(WorkspaceStage),
+    stage: Schema.optional(wireStage),
     reportedAt: Schema.optional(IsoDateTime),
     format: Schema.optional(Schema.Literals(["progress", "legacy"])),
   }),

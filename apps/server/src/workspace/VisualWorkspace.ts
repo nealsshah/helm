@@ -313,7 +313,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         id: cmd.itemId,
         title: cmd.title,
         scope: cmd.scope ?? "",
-        stage: cmd.stage ?? "backlog",
+        stage: cmd.stage ?? "planning",
         primaryThreadId: cmd.primaryThreadId,
         priority: 0,
         attention: "none",

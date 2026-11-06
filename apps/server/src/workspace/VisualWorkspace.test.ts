@@ -8,6 +8,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  WorkspaceAgentCommand,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -15,6 +16,7 @@ import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as CommandReceipts from "../orchestration-v2/CommandReceiptStore.ts";
@@ -180,7 +182,7 @@ it.effect(
       ).toContain("not associated");
       const after = yield* (yield* makeVisualWorkspace).get();
       expect(after.items[0]).toMatchObject({
-        stage: "backlog",
+        stage: "planning",
         sessions: [],
         decisions: [{ text: "Only ship the board" }],
       });
@@ -319,11 +321,38 @@ it.effect(
     }).pipe(Effect.provide(testLayer)),
 );
 
+it.effect("reads legacy cards and accepts stage reports from older clients", () =>
+  Effect.gen(function* () {
+    const workspace = yield* fixture;
+    const sql = yield* SqlClient.SqlClient;
+    for (const [previous, current] of [
+      ["backlog", "planning"],
+      ["shaping", "planning"],
+      ["review", "qa"],
+    ] as const) {
+      yield* sql`UPDATE helm_items SET body=json_set(body,'$.stage',${previous}) WHERE id='build'`;
+      expect((yield* workspace.get()).items[0]?.stage).toBe(current);
+      const report = yield* Schema.decodeUnknownEffect(WorkspaceAgentCommand)({
+        type: "report",
+        threadId: worker,
+        itemId: "build",
+        stage: previous,
+        text: "Progress",
+      });
+      yield* workspace.command(report, { threadId: worker });
+      const [stored] = yield* sql<{
+        stage: string;
+      }>`SELECT json_extract(body,'$.stage') AS stage FROM helm_items WHERE id='build'`;
+      expect(stored?.stage).toBe(current);
+    }
+  }).pipe(Effect.provide(testLayer)),
+);
+
 it.effect("assigned workers move a card forward and back when their report changes its stage", () =>
   Effect.gen(function* () {
     const workspace = yield* fixture;
     for (const [threadId, stage, text] of [
-      [primary, "review", "Ready for review"],
+      [primary, "qa", "Ready for review"],
       [worker, "building", "Review found a bug"],
     ] as const) {
       const result = yield* workspace.command(
