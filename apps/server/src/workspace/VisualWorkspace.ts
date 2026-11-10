@@ -802,6 +802,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         notification: {
           source: { kind: "subagent", childThreadId: request.threadId },
           outcome: "updated",
+          priority: "blocking",
           summary: "Worker requested a decision",
         },
         attachments: [],

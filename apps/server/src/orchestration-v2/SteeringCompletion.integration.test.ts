@@ -45,15 +45,29 @@ it.effect.each(
       [true, "settled only"],
       [false, "during continuation"],
       ["question", "during delivery"],
+      ["workspace question", "during delivery"],
+      ["workspace question", "after delivery"],
+      ["workspace question", "without native steering"],
+      ["workspace question", "with interrupting native steering"],
+      ["workspace progress", "queued progress"],
     ] as const
   ).map(([kind, timing]) => ({
     mailbox: kind === true,
-    question: kind === "question",
+    question: kind === "question" || kind === "workspace question" || kind === "workspace progress",
+    workspace: kind === "workspace question" || kind === "workspace progress",
     timing,
     label:
-      kind === "question" ? "delegated task question" : kind ? "mailbox notification" : "steering",
+      kind === "workspace progress"
+        ? "workspace progress"
+        : kind === "workspace question"
+          ? "workspace question"
+          : kind === "question"
+            ? "delegated task question"
+            : kind
+              ? "mailbox notification"
+              : "steering",
   })),
-)("delivers $label when completion wins $timing", ({ mailbox, question, timing }) =>
+)("delivers $label when completion wins $timing", ({ mailbox, question, workspace, timing }) =>
   Effect.scoped(
     Effect.gen(function* () {
       const cwd = yield* checkpointWorkspace(`steering-completion-${timing.replaceAll(" ", "-")}`);
@@ -150,7 +164,10 @@ it.effect.each(
                     cause: "turn already completed",
                   });
                 }),
-              interruptTurn: () => Effect.void,
+              interruptTurn: () =>
+                mailbox || question
+                  ? Effect.die("Automatic notifications must not interrupt tools")
+                  : Effect.void,
               respondToRuntimeRequest: () => Effect.void,
               readThreadSnapshot: () => Effect.die("unused"),
               rollbackThread: () => Effect.die("unused"),
@@ -297,7 +314,12 @@ it.effect.each(
           ...(question
             ? {
                 notification: {
-                  source: { kind: "delegated_task", taskIds: [taskId] },
+                  source: workspace
+                    ? { kind: "subagent", childThreadId: ThreadId.make("workspace-worker") }
+                    : { kind: "delegated_task", taskIds: [taskId] },
+                  ...(workspace && timing !== "queued progress"
+                    ? { priority: "blocking" as const }
+                    : {}),
                   outcome: "updated",
                   summary: "Delegated task has a question",
                 },
@@ -314,6 +336,13 @@ it.effect.each(
             : {}),
         });
         if (timing !== "before dispatch") yield* dispatchSteer;
+        if (workspace && timing === "during delivery") {
+          const delivered = yield* orchestrator.getThreadProjection(threadId);
+          assert.equal(
+            delivered.messages.find((message) => message.id === messageId)?.runId,
+            first.runId,
+          );
+        }
         if (timing === "during continuation") {
           const projection = yield* orchestrator.getThreadProjection(threadId);
           const turn = projection.providerTurns[0]!;

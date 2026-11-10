@@ -235,6 +235,9 @@ it.effect("a worker privately asks a Second Mate, who can answer or ask the pers
     yield* restarted.resumeWorkerQuestions();
     const messages = (yield* t3.getThreadRecords(lead, ["messages"])).messages;
     expect(messages.filter((message) => message.text.includes(question.id))).toHaveLength(1);
+    expect(
+      messages.find((message) => message.text.includes(question.id))?.notification?.priority,
+    ).toBe("blocking");
     expect(messages.filter((message) => message.text.includes("missed-wake"))).toHaveLength(1);
     yield* workspace.checkpoint(lead, {
       ...checkpoint,

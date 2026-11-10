@@ -1437,6 +1437,11 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
       leadMessages.filter((message) => message.text.includes(directQuestion.payload.id)),
       1,
     );
+    assert.equal(
+      leadMessages.find((message) => message.text.includes(directQuestion.payload.id))?.notification
+        ?.priority,
+      "blocking",
+    );
   }).pipe(
     Effect.provide(
       DelegatedTaskQuestionReactor.layer.pipe(

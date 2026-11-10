@@ -5916,7 +5916,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (id) =>
               projection.subagents.find((task) => task.id === id)?.completionWake === "always",
           )
-        : command.notification?.source.kind === "delegated_task"
+        : command.notification?.source.kind === "delegated_task" ||
+          command.notification?.priority === "blocking"
     ) {
       const active = projection.runs.find((run) => run.status === "running");
       const providerThread = projection.providerThreads.find(
@@ -12563,6 +12564,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
       if (childRun === undefined) return;
       const outcome = runOutcome(childRun);
+      if (
+        outcome === "completed" &&
+        delegatedTaskProgress({
+          ...childControls,
+          runs: taskRuns.length === 0 ? childControls.runs : taskRuns,
+        }).state !== "result_available"
+      ) {
+        return;
+      }
       const terminalStatus = delegatedTaskTerminalStatus(outcome);
       if (terminalStatus === null) {
         if (childRun.delegatedTaskId === undefined || childRun.id !== options.syncRunId) return;

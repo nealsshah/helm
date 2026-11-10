@@ -67,10 +67,12 @@ it("leaves a discussion selected when another work item requests attention and r
     review: WorkItem = { ...work("Review", "qa"), directWorker: true };
   const items = [shape, build, qa, review];
   const worker = ThreadId.make("verification-worker");
+  const reviewer = ThreadId.make("implementation-reviewer");
   const qaWithWorker = { ...qa, sessions: [{ threadId: worker, role: "QA worker" }] };
   const shapedBuild = {
     ...build,
     secondMateThreadId: ThreadId.make("implement-lead"),
+    sessions: [{ threadId: reviewer, role: "Reviewer" }],
     dependencies: [{ itemId: shape.id, owner: "Design" }],
   };
   const workItems = [shape, shapedBuild, qaWithWorker, review];
@@ -108,6 +110,16 @@ it("leaves a discussion selected when another work item requests attention and r
         title: "Implement lead",
       }),
       makeThreadFixture({ id: worker, environmentId: env, title: "Verification worker" }),
+      makeThreadFixture({
+        id: reviewer,
+        environmentId: env,
+        title: "Implementation reviewer",
+        lineage: {
+          parentThreadId: build.primaryThreadId,
+          rootThreadId: shapedBuild.secondMateThreadId,
+          relationshipToParent: "subagent",
+        },
+      }),
     ],
   };
   const ui = () => (
@@ -139,6 +151,9 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: /Implement/ })).not.toBeInTheDocument();
   await screen.getByRole("button", { name: "Workers (1)" }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: /Implementation reviewer/ }))
+    .not.toBeInTheDocument();
   await page.getByRole("menuitem", { name: /Implement/ }).click();
   await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
   await building.click();

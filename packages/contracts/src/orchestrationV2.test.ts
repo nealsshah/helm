@@ -549,12 +549,17 @@ describe("background work kinds from older or newer servers", () => {
       ],
     ] as const;
     for (const [source, preSpecificKindsSource] of cases) {
-      const item = decodeOrchestrationV2TurnItemJson(storedNotification(source));
-      for (const encoded of [encodeOrchestrationV2TurnItemJson(item), sendOverWire(item)]) {
-        expect(decodePreSpecificKinds(encoded).source).toEqual(preSpecificKindsSource);
-        expect(decodeOrchestrationV2TurnItemJson(encoded)).toEqual(item);
+      for (const priority of [undefined, "blocking"] as const) {
+        const item = decodeOrchestrationV2TurnItemJson({
+          ...storedNotification(source),
+          ...(priority === undefined ? {} : { priority }),
+        });
+        for (const encoded of [encodeOrchestrationV2TurnItemJson(item), sendOverWire(item)]) {
+          expect(decodePreSpecificKinds(encoded).source).toEqual(preSpecificKindsSource);
+          expect(decodeOrchestrationV2TurnItemJson(encoded)).toEqual(item);
+        }
+        expect(item).toMatchObject({ source, ...(priority === undefined ? {} : { priority }) });
       }
-      expect(item).toMatchObject({ source });
     }
   });
 

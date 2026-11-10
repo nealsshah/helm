@@ -3484,14 +3484,18 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
     }),
   );
 
-  it.effect.each(["a background command", "a nested subagent"] as const)(
-    "finalizes a child whose run ended before %s settled",
-    (blocker) =>
+  it.effect.each(
+    (["a background command", "a nested subagent"] as const).flatMap((blocker) =>
+      [false, true].map((followup) => ({ blocker, followup })),
+    ),
+  )(
+    "finalizes a child whose run ended before $blocker settled (followup: $followup)",
+    ({ blocker, followup }) =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const sink = yield* EventSink.EventSinkV2;
         const now = yield* DateTime.now;
-        const key = blocker === "a background command" ? "command" : "nested";
+        const key = `${blocker === "a background command" ? "command" : "nested"}-${followup ? "followup" : "initial"}`;
         const threadId = ThreadId.make(`late-settle-parent-${key}`);
         const runId = RunId.make(`late-settle-parent-run-${key}`);
         const rootNodeId = NodeId.make(`late-settle-parent-root-${key}`);
@@ -3509,13 +3513,17 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           Effect.gen(function* () {
             const taskId = NodeId.make(`node:late-settle-${key}-${name}`);
             const childThreadId = ThreadId.make(`thread:late-settle-${key}-${name}`);
-            const run = runEvent({
+            const initialRun = runEvent({
               threadId: childThreadId,
               runId: RunId.make(`run:late-settle-${key}-${name}`),
               ordinal: 1,
               status: "running",
               now,
             });
+            const run = {
+              ...initialRun,
+              payload: { ...initialRun.payload, delegatedTaskId: taskId },
+            };
             yield* sink.write({
               events: [
                 {
@@ -3541,7 +3549,10 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
                       relationshipToParent: "subagent",
                       rootThreadId: threadId,
                     },
-                    forkedFrom: { type: "node", nodeId: taskId },
+                    forkedFrom: {
+                      type: "node",
+                      nodeId: followup ? NodeId.make(`initial:${taskId}`) : taskId,
+                    },
                     createdAt: now,
                     updatedAt: now,
                     archivedAt: null,

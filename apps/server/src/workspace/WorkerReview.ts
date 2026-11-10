@@ -46,6 +46,7 @@ export const makeWorkerReview = Effect.gen(function* () {
       notification: {
         source: { kind: "subagent", childThreadId: worker },
         outcome: "updated",
+        ...(kind === "question" ? { priority: "blocking" as const } : {}),
         summary: `Worker ${kind} for Second Mate review`,
       },
       attachments: [],

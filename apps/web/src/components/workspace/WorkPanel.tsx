@@ -196,14 +196,22 @@ export function WorkPanel({
       : item || target.worker
         ? "Worker"
         : undefined;
-  const workerRows = workers.map((session) => {
+  const workerRows = workers.flatMap((session) => {
     const source = shellFor(session.threadId);
+    if (
+      session.threadId !== item?.primaryThreadId &&
+      (!source ||
+        (source.lineage.relationshipToParent === "subagent" &&
+          source.lineage.parentThreadId !== item?.secondMateThreadId))
+    ) {
+      return [];
+    }
     const status = runtimeLabel(
       source,
       host?.connected ?? false,
       host?.workerTriage && !!item?.secondMateThreadId,
     );
-    return { ...session, title: source?.title ?? session.role, status };
+    return [{ ...session, title: source?.title ?? session.role, status }];
   });
   const activeWorkers = workerRows.filter((row) => row.status === "Running");
   const orderedWorkers = [
@@ -261,14 +269,14 @@ export function WorkPanel({
               <ArrowLeftIcon /> Second Mate
             </Button>
           )}
-          {item && workers.length > 0 && (hasLead || workers.length > 1) && (
+          {item && workerRows.length > 0 && (hasLead || workerRows.length > 1) && (
             <Menu>
               <MenuTrigger
                 render={<Button variant="ghost" size="compact" />}
-                aria-label={`Workers (${workers.length})${activeWorkers.length ? `, ${activeWorkers.length} working` : ""}`}
+                aria-label={`Workers (${workerRows.length})${activeWorkers.length ? `, ${activeWorkers.length} working` : ""}`}
               >
                 <LayersIcon aria-hidden="true" />
-                <span>{workers.length}</span>
+                <span>{workerRows.length}</span>
                 {activeWorkers.length > 0 && (
                   <span
                     aria-hidden="true"

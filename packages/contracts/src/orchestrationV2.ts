@@ -1277,6 +1277,7 @@ export type OrchestrationV2NotificationSource = typeof OrchestrationV2Notificati
 export const OrchestrationV2Notification = Schema.Struct({
   source: OrchestrationV2NotificationSource,
   outcome: Schema.Literals(["completed", "failed", "cancelled", "updated", "unknown"]),
+  priority: Schema.optional(Schema.Literal("blocking")),
   summary: TrimmedNonEmptyString,
   detail: Schema.optional(Schema.String),
 });
