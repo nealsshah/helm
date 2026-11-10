@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
+import { Link, useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
 import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -417,13 +417,13 @@ function SidebarControl({ compact }: { compact: boolean }) {
         </TooltipPopup>
       </Tooltip>
       {!isSidebarVisible && (
-        <div className="pointer-events-auto ml-1">
+        <div className="pointer-events-auto fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] [-webkit-app-region:no-drag]">
           <Button
             variant="glass"
             size="icon-sm"
             aria-label="Settings"
             title="Settings"
-            onClick={() => void router.navigate({ to: "/settings" })}
+            render={<Link to="/settings/general" />}
           >
             <SettingsIcon />
           </Button>

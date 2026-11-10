@@ -161,7 +161,11 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     },
     [{ id: ProjectId.make("meow"), title: "Meow", workspaceRoot: "/workspace/meow" }],
   );
-  __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, onboardingCompletedAt: time });
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    panelAnimationDurationMs: 180,
+    onboardingCompletedAt: time,
+  });
   const ref = { environmentId: ENVIRONMENT_ID, threadId: first.id };
   useRightPanelStore.getState().open(ref, "diff");
   useRightPanelStore.getState().setMaximized(ref, true);

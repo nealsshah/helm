@@ -15,6 +15,13 @@ vi.mock("./workspaceState", () => ({
   useWorkspaceState: () => snapshot,
   useWorkspaceCommand: () => runWorkspace,
 }));
+vi.mock("../../hooks/useSettings", async () => {
+  const { DEFAULT_CLIENT_SETTINGS } = await import("@t3tools/contracts/settings");
+  return {
+    useClientSettings: (select: (settings: typeof DEFAULT_CLIENT_SETTINGS) => unknown) =>
+      select(DEFAULT_CLIENT_SETTINGS),
+  };
+});
 vi.mock("../../state/entities", () => ({ useProject: () => null, useThreadShell: () => null }));
 vi.mock("../ProjectFavicon", () => ({ ProjectFavicon: () => null }));
 vi.mock("../../state/server", () => ({
@@ -99,8 +106,11 @@ it("leaves a discussion selected when another work item requests attention and r
     </SidebarProvider>
   );
   await using screen = await render(ui(), { router: "/workspace" });
+  await expect
+    .element(screen.getByRole("heading", { name: "Workspace", exact: true }))
+    .not.toBeInTheDocument();
   const header = screen
-    .getByRole("heading", { name: "Workspace", exact: true })
+    .getByRole("button", { name: "First Mate", exact: true })
     .element()
     .closest("header")!;
   expect(getComputedStyle(header).getPropertyValue("-webkit-app-region")).toBe("drag");

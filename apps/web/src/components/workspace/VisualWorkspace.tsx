@@ -294,9 +294,7 @@ export function VisualWorkspace() {
           COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
       >
-        <h1 className="text-lg font-medium tracking-tight">
-          {sidebarVisible ? "Workspace" : "Helm"}
-        </h1>
+        {!sidebarVisible && <h1 className="text-lg font-medium tracking-tight">Helm</h1>}
         <div className="ml-auto flex items-center gap-2">
           <RetiredTasksMenu hosts={hosts} />
           <Button
@@ -327,11 +325,11 @@ export function VisualWorkspace() {
           </Button>
         </div>
       )}
-      <div className="relative mx-2 mb-2 flex min-h-0 min-w-0 flex-1 gap-(--workspace-split-gap) [--workspace-split-gap:--spacing(3)]">
+      <div className="relative mx-2 mb-2 flex min-h-0 min-w-0 flex-1 overflow-clip [--workspace-split-gap:--spacing(3)]">
         <section
           className={cn(
             "@container/board flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-background shadow-xs",
-            hasPanel && "hidden @3xl/workspace:flex",
+            hasPanel && "invisible @3xl/workspace:visible",
           )}
           aria-label="Workspace overview"
         >
@@ -501,35 +499,33 @@ export function VisualWorkspace() {
             })}
           </div>
         </section>
-        {hasPanel && (
-          <WorkspaceSidePane>
-            {showOrchestrator || target?.global ? (
-              orchestratorHost ? (
-                <OrchestratorPanel
-                  key={orchestratorHost.environmentId}
-                  state={state}
-                  host={orchestratorHost}
-                  selected={
-                    target?.global && target.environmentId === orchestratorHost.environmentId
-                      ? target.threadId
-                      : undefined
-                  }
-                  select={select}
-                  close={close}
-                />
-              ) : (
-                <aside className="p-4">
-                  Connect an environment to open First Mate.{" "}
-                  <Button variant="ghost" onClick={close}>
-                    Close
-                  </Button>
-                </aside>
-              )
+        <WorkspaceSidePane open={hasPanel}>
+          {showOrchestrator || target?.global ? (
+            orchestratorHost ? (
+              <OrchestratorPanel
+                key={orchestratorHost.environmentId}
+                state={state}
+                host={orchestratorHost}
+                selected={
+                  target?.global && target.environmentId === orchestratorHost.environmentId
+                    ? target.threadId
+                    : undefined
+                }
+                select={select}
+                close={close}
+              />
             ) : (
-              target && <WorkPanel state={state} target={target} close={close} select={select} />
-            )}
-          </WorkspaceSidePane>
-        )}
+              <aside className="p-4">
+                Connect an environment to open First Mate.{" "}
+                <Button variant="ghost" onClick={close}>
+                  Close
+                </Button>
+              </aside>
+            )
+          ) : (
+            target && <WorkPanel state={state} target={target} close={close} select={select} />
+          )}
+        </WorkspaceSidePane>
       </div>
       {delivery.error && !confirmation && (
         <p role="alert" className="px-4 py-2 text-sm text-destructive">

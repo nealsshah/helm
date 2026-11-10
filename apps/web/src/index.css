@@ -224,7 +224,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     );
   --color-zinc-25: oklch(99.2% 0 0);
   --animate-skeleton: skeleton 2.4s infinite;
-  --animate-workspace-pane: workspace-pane 120ms cubic-bezier(0.16, 1, 0.3, 1);
   /* Duty-cycled indicator animations: long holds with stepped ramps, so the
      compositor updates discrete frames instead of every vsync. */
   --animate-status-pulse: status-pulse 2s infinite;
@@ -334,13 +333,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       color: var(--color-primary);
     }
   }
-  @keyframes workspace-pane {
-    from {
-      opacity: 0.85;
-      transform: translateX(4px);
-    }
-  }
-
   @keyframes status-pulse {
     0%,
     40% {
