@@ -94,6 +94,7 @@ import {
   useSharedPullRequestSummary,
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
+import { WorkspaceChatNavigation } from "./workspace/WorkspaceChatNavigation";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
 import { PreviewPanelShell, type PreviewPanelMode } from "./preview/PreviewPanelShell";
@@ -1341,6 +1342,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         )}
         data-right-panel-tabbar
       >
+        {props.mode === "inline" && props.maximized && <WorkspaceChatNavigation />}
         <ScrollArea
           radius="none"
           ref={attachTabList}

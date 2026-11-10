@@ -10,7 +10,7 @@ Workers bring questions to the Second Mate first. If the task already gives it e
 
 When the Second Mate finishes answering your message, the task appears in **Needs me** with **Reply ready**. Open the card to read the answer and clear the notification. A decision still waiting on you stays in **Needs me** until you answer it.
 
-Retire a task to remove its card from the board and settle its Second Mate and workers. Click the checkmark on a Done card. For an unfinished task, right-click or double-click the card, choose **Retire task**, and confirm. **Retired tasks** lets you restore a card to its previous stage.
+Retire a task to remove its card from the board and settle its Second Mate and workers. Click the checkmark on a Done card. For an unfinished task, right-click the card (or focus it and press Shift+F10), choose **Retire task**, and confirm. The **Retired tasks** history icon lets you restore a card to its previous stage.
 
 ## Mirror a task from the external First Mate tool
 

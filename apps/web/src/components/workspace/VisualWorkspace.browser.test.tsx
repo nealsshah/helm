@@ -2,7 +2,7 @@ import "~/index.css";
 import { EnvironmentId, ThreadId, type WorkItem, type WorkspaceRequest } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "../../../test/render";
 import { makeThreadFixture } from "../../test-fixtures";
 import { SidebarProvider } from "../ui/sidebar";
@@ -264,7 +264,8 @@ it("retires done tasks with a checkmark and asks before retiring an unfinished t
   runWorkspace.mockClear();
 
   const card = screen.getByRole("button", { name: /Active ticket/ });
-  await card.dblClick();
+  card.element().focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
   await page.getByRole("menuitem", { name: "Retire task" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Retire Active ticket?" });
   await expect.element(dialog).toBeVisible();

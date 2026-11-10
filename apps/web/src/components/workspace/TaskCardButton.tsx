@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { CheckIcon } from "lucide-react";
-import { useEffect, useRef, type ComponentProps } from "react";
+import type { ComponentProps } from "react";
 import { ensureLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
@@ -12,7 +12,6 @@ export function TaskCardButton({
   entry,
   environmentId,
   retirement,
-  panelOpen,
   onRetire,
   onOpen,
   children,
@@ -22,19 +21,13 @@ export function TaskCardButton({
   entry: BoardItem | undefined;
   environmentId: EnvironmentId;
   retirement: boolean;
-  panelOpen: boolean;
   onRetire: (entry: BoardItem) => void;
   onOpen: () => void;
 }) {
   const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
   const available = entry && retirement && allowed;
   const done = available && entry.item.stage === "complete";
-  const pendingOpen = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- A removed card must cancel its pending navigation timer.
-  useEffect(() => () => clearTimeout(pendingOpen.current), []);
-
   async function menu(x: number, y: number) {
-    clearTimeout(pendingOpen.current);
     if (!available) return;
     const action = await ensureLocalApi().contextMenu.show(
       [{ id: "retire", label: "Retire task", icon: "check" }],
@@ -49,18 +42,7 @@ export function TaskCardButton({
         {...props}
         type="button"
         className={cn(className, done && "pr-10")}
-        onClick={(event) => {
-          if (!available || done || event.detail === 0 || panelOpen) {
-            onOpen();
-            return;
-          }
-          // Opening the panel moves the card out from under a second click.
-          clearTimeout(pendingOpen.current);
-          if (event.detail === 1) pendingOpen.current = setTimeout(onOpen, 350);
-        }}
-        onDoubleClick={(event) => {
-          if (available && !done) void menu(event.clientX, event.clientY);
-        }}
+        onClick={onOpen}
         onContextMenu={(event) => {
           if (!available) return;
           event.preventDefault();

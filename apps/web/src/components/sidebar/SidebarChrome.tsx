@@ -182,7 +182,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
 }
 
 function SidebarBrandMark() {
-  return <span className="truncate text-sm font-semibold tracking-tight">Helm</span>;
+  return <span className="truncate text-lg font-medium tracking-tight">Helm</span>;
 }
 
 function SidebarUtilityItem({

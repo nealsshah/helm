@@ -30,7 +30,7 @@ import { useReadWorkspaceReply } from "./ReadWorkspaceReply";
 import { RetiredTasksMenu } from "./RetiredTasksMenu";
 import { TaskCardButton } from "./TaskCardButton";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
-import { SidebarInset } from "../ui/sidebar";
+import { SidebarInset, useSidebarVisibility } from "../ui/sidebar";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { WorkspaceSidePane } from "./WorkspaceSidePane";
 import { WorkPanel } from "./WorkPanel";
@@ -99,7 +99,6 @@ function WorkCard({
   onClick,
   onRetire,
   retirement,
-  panelOpen,
 }: {
   entry: BoardItem;
   sessions: EnvironmentThreadShell[];
@@ -111,7 +110,6 @@ function WorkCard({
   onClick: () => void;
   onRetire: (entry: BoardItem) => void;
   retirement: boolean;
-  panelOpen: boolean;
 }) {
   const { item } = entry;
   const primary = sessions.find((s) => s.id === item.primaryThreadId);
@@ -139,7 +137,6 @@ function WorkCard({
       entry={entry}
       environmentId={entry.environmentId}
       retirement={retirement}
-      panelOpen={panelOpen}
       onRetire={onRetire}
       aria-pressed={selected}
       onOpen={onClick}
@@ -193,6 +190,7 @@ const Target = Schema.NullOr(PanelTarget);
 
 export function VisualWorkspace() {
   const state = useWorkspaceState();
+  const sidebarVisible = useSidebarVisibility();
   const command = useWorkspaceCommand();
   const readReply = useReadWorkspaceReply();
   const delivery = useDelivery();
@@ -296,7 +294,9 @@ export function VisualWorkspace() {
           COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
       >
-        <h1 className="text-lg font-medium tracking-tight">Workspace</h1>
+        <h1 className="text-lg font-medium tracking-tight">
+          {sidebarVisible ? "Workspace" : "Helm"}
+        </h1>
         <div className="ml-auto flex items-center gap-2">
           <RetiredTasksMenu hosts={hosts} />
           <Button
@@ -397,7 +397,6 @@ export function VisualWorkspace() {
                       <TaskCardButton
                         entry={linked}
                         retirement={Boolean(host?.connected && host.retirement)}
-                        panelOpen={hasPanel}
                         environmentId={environmentId}
                         onRetire={requestRetirement}
                         aria-label={title}
@@ -491,7 +490,6 @@ export function VisualWorkspace() {
                             target?.itemId === item.id && target.environmentId === environmentId
                           }
                           retirement={Boolean(host?.connected && host.retirement)}
-                          panelOpen={hasPanel}
                           onRetire={requestRetirement}
                           onClick={() => openItem(entry)}
                         />

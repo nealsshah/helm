@@ -248,7 +248,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .not.toBeInTheDocument();
   await expect.element(directAnswer).toBeVisible();
   await expect.element(coordination).not.toBeInTheDocument();
-  await screen.getByRole("link", { name: /^Workspace/ }).click();
+  await screen.getByRole("link", { name: "Back to workspace" }).click();
   await expectRole("Second Mate");
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");
   await expect

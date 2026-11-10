@@ -194,6 +194,7 @@ import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
 import { cn } from "~/lib/utils";
 import { isModelPickerOpen } from "../modelPickerVisibility";
+import { WorkspaceChatNavigation } from "./workspace/WorkspaceChatNavigation";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
 import { projectScriptIdFromCommand } from "~/projectScripts";
@@ -3407,22 +3408,24 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
             {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-            <ChatHeader
-              activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadId={activeThread.id}
-              isServerThread={isServerThread}
-              activeThreadTitle={activeThread.title}
-              activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
-              activeProject={activeProject ?? null}
-              parentThreadLink={headerParentThreadLink}
-              onOpenThread={onOpenRelatedThreadStable}
-              rightPanelOpen={inlineRightPanelOwnsTitleBar}
-              onNewThreadInProject={handleNewThreadInActiveProjectStable}
-              {...(activeDraftLogicalProjectKey
-                ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
-                : {})}
-              {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
-            />
+            <WorkspaceChatNavigation>
+              <ChatHeader
+                activeThreadEnvironmentId={activeThread.environmentId}
+                activeThreadId={activeThread.id}
+                isServerThread={isServerThread}
+                activeThreadTitle={activeThread.title}
+                activeThreadLinkOrigin={activeThreadShell?.linkOrigin?.label ?? null}
+                activeProject={activeProject ?? null}
+                parentThreadLink={headerParentThreadLink}
+                onOpenThread={onOpenRelatedThreadStable}
+                rightPanelOpen={inlineRightPanelOwnsTitleBar}
+                onNewThreadInProject={handleNewThreadInActiveProjectStable}
+                {...(activeDraftLogicalProjectKey
+                  ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
+                  : {})}
+                {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
+              />
+            </WorkspaceChatNavigation>
           </header>
         )}
 

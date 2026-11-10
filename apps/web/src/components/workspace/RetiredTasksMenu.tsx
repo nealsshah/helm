@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, WorkItem } from "@t3tools/contracts";
-import { ArchiveRestoreIcon } from "lucide-react";
+import { ArchiveRestoreIcon, HistoryIcon } from "lucide-react";
 import { serverEnvironment } from "../../state/server";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -51,7 +51,13 @@ export function RetiredTasksMenu({ hosts }: { hosts: WorkspaceState["hosts"] }) 
   if (!retired.length) return null;
   return (
     <Menu>
-      <MenuTrigger render={<Button variant="ghost" size="sm" />}>Retired tasks</MenuTrigger>
+      <MenuTrigger
+        aria-label="Retired tasks"
+        title="Retired tasks"
+        render={<Button variant="ghost" size="icon-sm" />}
+      >
+        <HistoryIcon />
+      </MenuTrigger>
       <MenuPopup align="end">
         {retired
           .sort((left, right) => right.item.retiredAt!.localeCompare(left.item.retiredAt!))

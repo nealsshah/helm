@@ -1,3 +1,5 @@
+import { SettingsIcon } from "lucide-react";
+import { Button } from "./ui/button";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -414,6 +416,19 @@ function SidebarControl({ compact }: { compact: boolean }) {
           Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
         </TooltipPopup>
       </Tooltip>
+      {!isSidebarVisible && (
+        <div className="pointer-events-auto ml-1">
+          <Button
+            variant="glass"
+            size="icon-sm"
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => void router.navigate({ to: "/settings" })}
+          >
+            <SettingsIcon />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -477,7 +492,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
-        defaultOpen
+        defaultOpen={false}
         style={sidebarProviderStyle}
       >
         <SidebarBrandWidthProbe

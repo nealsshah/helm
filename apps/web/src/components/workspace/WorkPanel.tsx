@@ -354,6 +354,7 @@ export function WorkPanel({
             <Link
               to="/$environmentId/$threadId"
               params={{ environmentId, threadId }}
+              state={{ fromWorkspace: true }}
               className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
               aria-label="Open full session"
             >
@@ -381,6 +382,7 @@ export function WorkPanel({
                   void navigate({
                     to: "/$environmentId/$threadId",
                     params: { environmentId, threadId },
+                    state: { fromWorkspace: true },
                   });
                 }}
                 reserveTitleBarControlInset={false}
