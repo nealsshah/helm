@@ -333,6 +333,7 @@ export interface ProjectionRuntimeResponseContext {
 }
 
 export interface ProjectionRecordFilter {
+  readonly includeWorkspaceRole?: boolean;
   readonly providerThreadIds?: ReadonlyArray<ProviderThreadId>;
   readonly providerTurnAttemptIds?: ReadonlyArray<RunAttemptId>;
   readonly messageRoles?: ReadonlyArray<OrchestrationV2ConversationMessage["role"]>;
@@ -391,7 +392,7 @@ export type ProjectionRecordField = Exclude<
 export type ProjectionRecords<K extends ProjectionRecordField> = Pick<
   OrchestrationV2ThreadProjection,
   "thread" | K
->;
+> & { readonly workspaceRole?: "firstMate" | "secondMate" | "worker" };
 
 export interface ProjectionTimelinePageOptions {
   readonly afterPosition?: number;
@@ -5587,16 +5588,21 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       fields,
       filter,
     ) =>
-      sql.withTransaction(readCanonicalProjection(threadId, undefined, fields, filter)).pipe(
-        Effect.map(
-          (projection) =>
-            Object.fromEntries([
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const projection = yield* readCanonicalProjection(threadId, undefined, fields, filter);
+            const workspaceRole = filter?.includeWorkspaceRole
+              ? yield* workspaceRoleForThread(sql, threadId)
+              : undefined;
+            return Object.fromEntries([
               ["thread", projection.thread],
+              ...(workspaceRole ? [["workspaceRole", workspaceRole]] : []),
               ...fields.map((field) => [field, projection[field]]),
-            ]) as ProjectionRecords<(typeof fields)[number]>,
-        ),
-        Effect.mapError(controlReadError(threadId)),
-      );
+            ]) as ProjectionRecords<(typeof fields)[number]>;
+          }),
+        )
+        .pipe(Effect.mapError(controlReadError(threadId)));
 
     const getThreadSnapshot: ProjectionStoreV2Shape["getThreadSnapshot"] = (threadId) =>
       sql

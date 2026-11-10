@@ -1,4 +1,7 @@
 import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type OrchestratorMcpTarget,
   type ModelSelection,
   OrchestratorMcpFailure,
   type OrchestratorMcpDelegateTaskInput,
@@ -92,4 +95,25 @@ export function taskPrompt(input: OrchestratorMcpDelegateTaskInput): string {
   return input.role === undefined || input.role === "general"
     ? input.task
     : `Act as the ${input.role} sub-agent for this task.\n\n${input.task}`;
+}
+
+const workerDriver = ProviderDriverKind.make("claudeAgent");
+export const workerInstance = ProviderInstanceId.make("claudeAgent");
+export const workerModel = "claude-opus-5-5";
+
+export function workspaceWorkerTarget(
+  target: OrchestratorMcpTarget | undefined,
+  remote: boolean,
+): OrchestratorMcpTarget {
+  const targetsClaude =
+    target?.driverKind === workerDriver || target?.providerInstanceId === workerInstance;
+  return {
+    ...target,
+    driverKind: workerDriver,
+    providerInstanceId:
+      (targetsClaude ? target?.providerInstanceId : undefined) ??
+      (remote ? workerInstance : undefined),
+    model: workerModel,
+    options: targetsClaude ? (target?.options ?? []) : [],
+  };
 }

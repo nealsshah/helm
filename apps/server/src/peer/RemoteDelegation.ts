@@ -31,6 +31,7 @@ import {
   resolveInteractionMode,
   resolveRuntimeMode,
   taskPrompt,
+  workspaceWorkerTarget,
 } from "../mcp/delegatedTaskModes.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -186,15 +187,17 @@ const make = Effect.gen(function* () {
 
   const delegate: RemoteDelegation["Service"]["delegate"] = Effect.fn("RemoteDelegation.delegate")(
     function* (scope, input) {
-      const parent = yield* threads.getThreadRecords(scope.thread.threadId, ["runs"]).pipe(
-        Effect.mapError(
-          () =>
-            new OrchestratorMcpFailure({
-              code: "thread_not_found",
-              message: "The calling thread was not found.",
-            }),
-        ),
-      );
+      const parent = yield* threads
+        .getThreadRecords(scope.thread.threadId, ["runs"], { includeWorkspaceRole: true })
+        .pipe(
+          Effect.mapError(
+            () =>
+              new OrchestratorMcpFailure({
+                code: "thread_not_found",
+                message: "The calling thread was not found.",
+              }),
+          ),
+        );
       const parentRun = parent.runs
         .filter(ThreadManagement.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -209,7 +212,12 @@ const make = Effect.gen(function* () {
         });
       }
       const parentNodeId = parentRun.rootNodeId;
-      const { target } = input;
+      const target = parent.workspaceRole
+        ? {
+            ...workspaceWorkerTarget(input.target, true),
+            environmentId: input.target.environmentId,
+          }
+        : input.target;
       // A worktree there would branch from a commit this checkout has and the
       // other may not, so a remote task runs in that project's checkout.
       if (input.isolation === "worktree") {

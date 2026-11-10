@@ -5,6 +5,7 @@ import {
   ThreadId,
   WorkItem,
   WorkspaceError,
+  WORKSPACE_MATE_MODEL,
   type WorkspaceCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -45,7 +46,7 @@ export const ensureMateThread = Effect.fn("VisualWorkspace.ensureMateThread")(fu
       threadId: leadId,
       projectId,
       title: `Second Mate · ${title}`,
-      modelSelection: source.modelSelection,
+      modelSelection: WORKSPACE_MATE_MODEL,
       runtimeMode: source.runtimeMode,
       interactionMode: "default",
       branch: projectId === source.projectId ? source.branch : null,

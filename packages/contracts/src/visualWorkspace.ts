@@ -2,6 +2,15 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ThreadId, TrimmedNonEmptyString as Text, IsoDateTime } from "./baseSchemas.ts";
 
+import { ProviderInstanceId } from "./providerInstance.ts";
+import type { ModelSelection } from "./modelSelection.ts";
+
+export const WORKSPACE_MATE_MODEL = {
+  instanceId: ProviderInstanceId.make("codex"),
+  model: "gpt-6.1-sol",
+  options: [{ id: "reasoningEffort", value: "high" }],
+} satisfies ModelSelection;
+
 export const WorkspaceStage = Schema.Literals([
   "planning",
   "building",

@@ -3036,7 +3036,14 @@ describe("OrchestratorMcpService provider resolution", () => {
           ],
         } as const;
         const override = [{ id: "reasoningEffort", value: "max" }] as const;
+        const claudeId = ProviderInstanceId.make("claudeAgent");
         const cases = [
+          {
+            name: "Second Mate assigns a worker",
+            workspaceRole: "secondMate",
+            target: {},
+            expected: { instanceId: claudeId, model: "claude-opus-5-5", options: [] },
+          },
           {
             name: "partial override",
             target: { options: override },
@@ -3080,11 +3087,17 @@ describe("OrchestratorMcpService provider resolution", () => {
             NodeCrypto.layer,
             Layer.mock(ThreadManagementService.ThreadManagementService)({
               hasReceipt: () => Effect.succeed(false),
+              isProviderInstanceEnabledForProject: () => Effect.succeed(true),
               assertProviderInstanceEnabled: () => Effect.void,
-              getThreadRecords: (threadId) =>
+              getThreadRecords: (threadId, _fields, filter) =>
                 Effect.succeed(
                   threadId === parentThreadId
-                    ? parentProjection(commands.length > 0 ? [task] : [], inherited)
+                    ? {
+                        ...parentProjection(commands.length > 0 ? [task] : [], inherited),
+                        ...(filter?.includeWorkspaceRole && "workspaceRole" in testCase
+                          ? { workspaceRole: testCase.workspaceRole }
+                          : {}),
+                      }
                     : childProjection,
                 ),
               dispatch: (command) =>
@@ -3112,8 +3125,13 @@ describe("OrchestratorMcpService provider resolution", () => {
                 })),
               },
               providerSnapshot({ instanceId: peerId, driver, model: inherited.model }),
+              providerSnapshot({
+                instanceId: claudeId,
+                driver: ProviderDriverKind.make("claudeAgent"),
+                model: "claude-opus-5-5",
+              }),
             ]),
-            adapterRegistryLayer([codexInstanceId, peerId]),
+            adapterRegistryLayer([codexInstanceId, peerId, claudeId]),
             Layer.mock(ProjectService.ProjectService)({}),
             Layer.mock(SecretRequests.SecretRequests)({}),
             Layer.mock(RemoteDelegation.RemoteDelegation)({}),

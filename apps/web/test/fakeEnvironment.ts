@@ -97,7 +97,27 @@ const serverConfig: ServerConfig = {
         status: "ready",
         auth: { status: "authenticated" },
         checkedAt: "2026-03-17T19:12:28.000Z",
-        models: [{ slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null }],
+        models: [
+          { slug: "gpt-5.4", name: "GPT-5.4", isCustom: false, capabilities: null },
+          {
+            slug: "gpt-6.1-sol",
+            name: "Sol",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  type: "select",
+                  id: "reasoningEffort",
+                  label: "Reasoning",
+                  options: [
+                    { id: "low", label: "Low", isDefault: true },
+                    { id: "high", label: "High" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
       },
     ],
     availableEditors: [],
@@ -196,6 +216,7 @@ function run(threadId: ThreadId, id: RunId, ordinal: number, userMessageId: stri
 
 export interface FakeThread {
   /** Makes this a side chat of that thread. */
+  readonly modelSelection?: OrchestrationV2ThreadShell["modelSelection"];
   readonly sideChatOf?: ThreadId;
   readonly archived?: boolean;
   readonly projectId?: ProjectId;
@@ -237,7 +258,7 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
     projectId: thread.projectId ?? PROJECT_ID,
     title: thread.title,
     providerInstanceId: CODEX,
-    modelSelection: MODEL,
+    modelSelection: thread.modelSelection ?? MODEL,
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: "main",
@@ -386,6 +407,7 @@ const handlers: Record<string, (input: never) => unknown> = {
       const thread: FakeThread = {
         id,
         title: input.title,
+        modelSelection: input.modelSelection,
         projectId: input.projectId,
         items: [userItem(id, runId, messageId, 0, prompt.text)],
         runs: [run(id, runId, 1, messageId)],
@@ -571,6 +593,9 @@ export function installFakeEnvironment(
     return realFetch(input, init);
   };
   return {
+    get latestThread() {
+      return threads.at(-1);
+    },
     get threadCount() {
       return threads.length;
     },

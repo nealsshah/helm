@@ -294,6 +294,11 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     expect(message?.textContent).toContain("Coordinate the render release.");
   });
   expect(env.threadCount).toBe(originalCount + 1);
+  expect(env.latestThread?.modelSelection).toEqual({
+    instanceId: "codex",
+    model: "gpt-6.1-sol",
+    options: [{ id: "reasoningEffort", value: "high" }],
+  });
   await screen.getByRole("tab", { name: second.title }).click();
   await expect.element(screen.getByLabelText("Session project: Meow")).toBeVisible();
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");

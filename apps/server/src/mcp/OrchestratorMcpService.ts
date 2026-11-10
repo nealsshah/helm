@@ -122,6 +122,7 @@ import {
   resolveRuntimeMode,
   runtimeModeRank,
   taskPrompt,
+  workspaceWorkerTarget,
 } from "./delegatedTaskModes.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -1076,7 +1077,11 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  const loadProjection = (threadId: ThreadId, includeUserMessages = true) =>
+  const loadProjection = (
+    threadId: ThreadId,
+    includeUserMessages = true,
+    includeWorkspaceRole = false,
+  ) =>
     loadThreadRecords(
       threadId,
       [
@@ -1088,7 +1093,11 @@ const make = Effect.gen(function* () {
         "contextTransfers",
         "turnItems",
       ],
-      { turnItemTypes: [], messageRoles: includeUserMessages ? ["user"] : [] },
+      {
+        turnItemTypes: [],
+        messageRoles: includeUserMessages ? ["user"] : [],
+        includeWorkspaceRole,
+      },
     );
 
   // A dispatcher thread holds thousands of tasks, each with its full prompt; read only the ones named.
@@ -1162,7 +1171,11 @@ const make = Effect.gen(function* () {
   ) {
     yield* requireCapability(scope);
     const threadScope = yield* requireThreadScope(scope, operation);
-    const parent = yield* loadProjection(threadScope.thread.threadId);
+    const parent = yield* loadProjection(
+      threadScope.thread.threadId,
+      true,
+      operation === "delegate_task" || operation === "create_threads",
+    );
     return { scope: threadScope, parent } as const;
   });
 
@@ -2407,7 +2420,7 @@ const make = Effect.gen(function* () {
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
       const target = yield* resolveTargetRechecking({
         parent,
-        target: input.target,
+        target: parent.workspaceRole ? workspaceWorkerTarget(input.target, false) : input.target,
         providers,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
@@ -2816,7 +2829,9 @@ const make = Effect.gen(function* () {
                 parent,
                 target:
                   committedThread === null
-                    ? request.target
+                    ? parent.workspaceRole
+                      ? workspaceWorkerTarget(request.target, false)
+                      : request.target
                     : {
                         ...request.target,
                         providerInstanceId: committedThread.modelSelection.instanceId,

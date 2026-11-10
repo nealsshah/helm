@@ -31,7 +31,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Tracer from "effect/Tracer";
-import type * as SqlClient from "effect/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../config.ts";
@@ -1101,6 +1101,20 @@ it.effect("a task named only by environment inherits the parent's model, within 
         modelSelection,
         runtimeMode: "auto-accept-edits",
         interactionMode: "default",
+      });
+
+      const sql = Context.get(database, SqlClient.SqlClient);
+      yield* sql`INSERT INTO helm_orchestrators(thread_id) VALUES (${parentThreadId})`;
+      const worker = yield* a.call("delegate_task", {
+        task: "Review the patch on the box.",
+        target: { environmentId: box.environmentId },
+        clientRequestId: "workspace-review",
+      });
+      expect(worker.isError, JSON.stringify(worker.content)).toBe(false);
+      expect((yield* Ref.get(thread.launchedWith))?.modelSelection).toEqual({
+        instanceId: "claudeAgent",
+        model: "claude-opus-5-5",
+        options: [],
       });
 
       // Asking for more than the link allows is still refused there.

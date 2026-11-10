@@ -26,7 +26,7 @@ import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
+import { resolveRuntimeMode, workerModel, workerInstance } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
@@ -185,9 +185,17 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 ),
               )
             : undefined;
+        const workspaceRole =
+          caller && !replaying
+            ? (yield* context.threads
+                .getThreadRecords(caller.id, [], { includeWorkspaceRole: true })
+                .pipe(Effect.mapError(unavailable))).workspaceRole
+            : undefined;
         const modelSelection =
-          input.modelSelection ??
           launchedModel ??
+          (workspaceRole
+            ? { instanceId: workerInstance, model: workerModel }
+            : input.modelSelection) ??
           caller?.modelSelection ??
           (projectDefaults
             ? resolveNewThreadModelSelection({

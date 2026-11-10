@@ -308,7 +308,13 @@ it.effect("opens one idle Second Mate for an existing task without replacing its
     expect(item.primaryThreadId).toBe(primary);
     expect(item.sessions).toEqual([{ threadId: worker, role: "review" }]);
     const t3 = yield* Orchestrator.OrchestratorV2;
-    const records = yield* t3.getThreadRecords(lead, ["runs"]);
+    const records = yield* t3.getThreadRecords(lead, ["runs"], { includeWorkspaceRole: true });
+    expect(records.workspaceRole).toBe("secondMate");
+    expect(records.thread.modelSelection).toEqual({
+      instanceId: "codex",
+      model: "gpt-6.1-sol",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
     expect(records.runs).toHaveLength(0);
     expect(records.thread.projectId).toBe(projectId);
     yield* t3.dispatch({
