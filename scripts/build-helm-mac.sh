@@ -117,6 +117,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Use the upstream source-build defaults for Connect, without importing unrelated environment settings.
+for key in T3CODE_CLERK_PUBLISHABLE_KEY T3CODE_CLERK_JWT_TEMPLATE T3CODE_CLERK_CLI_OAUTH_CLIENT_ID T3CODE_RELAY_URL; do
+  value=${!key:-$(sed -n "s/^${key}=//p" .env.example)}
+  [[ -n "$value" ]] || { echo "Missing Connect build setting: $key" >&2; exit 1; }
+  export "$key=$value"
+done
+
 node scripts/build-desktop-artifact.ts --platform mac --target dir --arch "$arch" \
   --build-version "$version" --output-dir "$stage"
 bundle=$(find "$stage" -maxdepth 2 -type d -name Helm.app -print -quit)
@@ -125,6 +132,11 @@ cmp scripts/lib/helm-update.yml "$bundle/Contents/Resources/app-update.yml"
 # A persistent identity lets Keychain recognize Helm after local rebuilds.
 codesign "${sign_args[@]}" "$bundle"
 codesign --verify --deep --strict "$bundle"
+(
+  unset T3CODE_RELAY_URL T3CODE_CLERK_PUBLISHABLE_KEY T3CODE_CLERK_CLI_OAUTH_CLIENT_ID
+  T3CODE_HOME="$stage/connect-smoke" ELECTRON_RUN_AS_NODE=1 "$bundle/Contents/MacOS/Helm" \
+    "$bundle/Contents/Resources/app.asar/apps/server/dist/bin.mjs" connect status --json >/dev/null
+)
 if [[ -f "$target/Contents/Resources/app-update.yml" ]]; then
   requirement=$(codesign -d -r- "$target" 2>/dev/null | sed -n 's/^designated => //p')
   [[ -n "$requirement" ]] || { echo "The installed app has no persistent signing requirement." >&2; exit 1; }
