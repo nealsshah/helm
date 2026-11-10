@@ -428,7 +428,7 @@ export function VisualWorkspace() {
             )}
           </section>
           {hosts.map((host) =>
-            host.error || !host.connected || !host.snapshot ? (
+            host.error || !host.connected || (!host.snapshot && !host.sessionOnly) ? (
               <p
                 className="border-b border-border px-4 py-2 text-xs"
                 key={host.environmentId}

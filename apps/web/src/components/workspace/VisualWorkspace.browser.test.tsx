@@ -78,6 +78,7 @@ it("leaves a discussion selected when another work item requests attention and r
     environmentId: env,
     label: "Local",
     connected: true,
+    sessionOnly: false,
     secondMate: true,
     workerTriage: true,
     retirement: true,
@@ -85,7 +86,16 @@ it("leaves a discussion selected when another work item requests attention and r
     snapshot: { orchestratorThreadIds: [], items: workItems, requests: [] },
   };
   snapshot = {
-    hosts: [host],
+    hosts: [
+      host,
+      {
+        ...host,
+        environmentId: EnvironmentId.make("session-only"),
+        label: "Session-only Mac",
+        sessionOnly: true,
+        snapshot: null,
+      },
+    ],
     items: workItems.map((item) => ({ environmentId: env, item })),
     requests: [],
     shells: [
@@ -109,6 +119,7 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect
     .element(screen.getByRole("heading", { name: "Workspace", exact: true }))
     .not.toBeInTheDocument();
+  await expect.element(screen.getByText(/Session-only Mac ·/)).not.toBeInTheDocument();
   const header = screen
     .getByRole("button", { name: "First Mate", exact: true })
     .element()
@@ -273,6 +284,7 @@ it("retires done tasks with a checkmark and asks before retiring an unfinished t
         environmentId: env,
         label: "Local",
         connected: true,
+        sessionOnly: false,
         secondMate: true,
         workerTriage: true,
         retirement: true,

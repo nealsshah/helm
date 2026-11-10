@@ -6,6 +6,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 
 interface HostWorkspace {
+  sessionOnly?: boolean;
   secondMate?: boolean;
   workerTriage?: boolean;
   retirement?: boolean;
@@ -19,7 +20,7 @@ export const hostWorkspace = Atom.family((environmentId: EnvironmentId) =>
     const config = get(environmentPresentations.serverConfigsAtom).get(environmentId);
     if (!config) return previous ?? { snapshot: null, error: null };
     if (config.environment.capabilities.visualWorkspace !== true) {
-      return { snapshot: null, error: "This server supports session conversations only." };
+      return { sessionOnly: true, snapshot: null, error: null };
     }
     const query = get(serverEnvironment.workspaceLive({ environmentId, input: {} }));
     return {

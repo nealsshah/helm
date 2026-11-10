@@ -141,6 +141,7 @@ export function useWorkspaceState() {
       secondMate: host?.secondMate === true,
       workerTriage: host?.workerTriage === true,
       retirement: host?.retirement === true,
+      sessionOnly: host?.sessionOnly === true,
       snapshot: host?.snapshot ?? null,
       error: host?.error ?? null,
     };
