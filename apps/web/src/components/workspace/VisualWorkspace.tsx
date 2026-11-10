@@ -292,7 +292,7 @@ export function VisualWorkspace() {
     <SidebarInset className="@container/workspace h-dvh min-h-0 overflow-hidden" tone="sidebar">
       <header
         className={cn(
-          "drag-region flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2 md:px-5",
+          "drag-region flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2 md:px-5",
           COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
       >
