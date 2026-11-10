@@ -156,6 +156,19 @@ it.effect("returns the Second Mate chat for both new and existing tasks", () =>
         brief: "Add CSV export",
       })
       .pipe(Stream.unwrap, Stream.runCollect);
+    const direct = yield* toolkit
+      .handle("t3_workspace_start_task", {
+        itemId: "csv",
+        title: "Export",
+        brief: "Add CSV export",
+        mode: "direct",
+      })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    expect(direct.at(-1)?.result).toEqual({
+      itemId: "csv",
+      workerThreadId: "csv-worker",
+      link: "<t3-thread://v2/test/csv-worker>",
+    });
     const opened = yield* toolkit
       .handle("t3_workspace_update", { command: { type: "ensureSecondMate", itemId: "export" } })
       .pipe(Stream.unwrap, Stream.runCollect);
@@ -173,8 +186,18 @@ it.effect("returns the Second Mate chat for both new and existing tasks", () =>
         Layer.provideMerge(liveThreadsLayer),
         Layer.provideMerge(
           Layer.mock(Workspace.VisualWorkspace)({
-            startTask: () =>
-              Effect.succeed({ itemId: "export", secondMateThreadId: ThreadId.make("lead") }),
+            startTask: (_caller, task) =>
+              task.mode === "direct"
+                ? Effect.succeed({
+                    itemId: task.itemId,
+                    threadId: ThreadId.make("csv-worker"),
+                    workerThreadId: ThreadId.make("csv-worker"),
+                  })
+                : Effect.succeed({
+                    itemId: task.itemId,
+                    threadId: ThreadId.make("lead"),
+                    secondMateThreadId: ThreadId.make("lead"),
+                  }),
             command: () =>
               Effect.succeed({
                 ...snapshot,

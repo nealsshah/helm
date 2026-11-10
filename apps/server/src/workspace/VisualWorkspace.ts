@@ -7,6 +7,7 @@ import {
   WorkItem,
   WorkspaceError,
   WorkspaceRequest,
+  workspaceOwnerThreadId,
   type WorkspaceCheckpoint,
   type WorkspaceCommand,
   type WorkspaceSnapshot,
@@ -25,7 +26,11 @@ import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
 import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
 
 import { makeTaskRetirement } from "./RetireWorkspaceTask.ts";
-import { ensureMateThread, makeStartWorkspaceTask, secondMateId } from "./StartWorkspaceTask.ts";
+import {
+  ensureTaskOwnerThread,
+  makeStartWorkspaceTask,
+  secondMateId,
+} from "./StartWorkspaceTask.ts";
 import {
   attachWorkspaceDescendants,
   unassignedWorkspaceDelegates,
@@ -152,7 +157,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
                 run_id: string;
                 completed_at: string;
                 excerpt: string;
-              }>`SELECT item_id,thread_id,run_id,completed_at,excerpt FROM helm_ready_replies`;
+              }>`SELECT item_id,thread_id,run_id,completed_at,excerpt FROM helm_owner_ready_replies`;
           return {
             orchestratorThreadIds: yield* orchestrators(),
             items: [
@@ -427,11 +432,11 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       if (cmd.type === "request" || cmd.type === "report") {
         if (cmd.threadId !== actor.threadId) return yield* fail("Publish from the calling thread.");
       } else if (!(yield* orchestrators()).includes(actor.threadId)) {
-        const [lead] = yield* sql`SELECT 1 FROM helm_items WHERE id=${cmd.itemId}
-          AND json_extract(body,'$.secondMateThreadId')=${actor.threadId}`;
+        const [lead] =
+          yield* sql`SELECT 1 FROM helm_task_owners WHERE item_id=${cmd.itemId} AND thread_id=${actor.threadId}`;
         if (!lead || (cmd.type !== "update" && cmd.type !== "artifact" && cmd.type !== "decide"))
           return yield* fail(
-            "Only a First Mate can manage the whole board. A Second Mate manages its own task.",
+            "Only a First Mate can manage the whole board. A task owner manages its own task.",
           );
       }
     }
@@ -488,7 +493,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     }
     if (cmd.type === "readReply") {
       yield* sql`INSERT INTO helm_reply_reads(thread_id,ordinal)
-        SELECT thread_id,ordinal FROM helm_ready_replies WHERE item_id=${cmd.itemId} AND run_id=${cmd.replyId}
+        SELECT thread_id,ordinal FROM helm_owner_ready_replies WHERE item_id=${cmd.itemId} AND run_id=${cmd.replyId}
         ON CONFLICT(thread_id) DO UPDATE SET ordinal=MAX(excluded.ordinal,helm_reply_reads.ordinal)`;
       return;
     }
@@ -596,13 +601,11 @@ export const makeVisualWorkspace = Effect.gen(function* () {
               VALUES (${attention.id},${item.id},${yield* encodeRequest(attention)})`;
           }
         }
+        const owner = workspaceOwnerThreadId(item);
         // Workers and imported files have independent clocks. Arrival at the owning server orders reports.
         item = {
           ...item,
-          stage:
-            item.secondMateThreadId && cmd.threadId !== item.secondMateThreadId
-              ? item.stage
-              : (cmd.stage ?? item.stage),
+          stage: owner && cmd.threadId !== owner ? item.stage : (cmd.stage ?? item.stage),
           latestReport: {
             threadId: cmd.threadId,
             text: cmd.text,
@@ -654,6 +657,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         };
         break;
       case "associate": {
+        if (item.directWorker) return yield* fail("Direct tasks have a single worker.");
         yield* activeProject(cmd.threadId);
         if (cmd.threadId === item.primaryThreadId || cmd.threadId === item.secondMateThreadId)
           return yield* fail("This thread already belongs to the task.");
@@ -719,6 +723,10 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       if (workerThreadId) return;
       return yield* fail("Restore the retired task first.");
     }
+    if (item.directWorker) {
+      if (workerThreadId) return;
+      return yield* fail("Open this task’s worker conversation directly.");
+    }
     const previous = item.secondMateThreadId;
     if (previous && previous === workerThreadId) return;
     let lead = secondMateId(item.id);
@@ -741,7 +749,13 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       lead = ThreadId.make(`helm:replacement-mate:${previous}`);
     }
 
-    yield* ensureMateThread(threads, previous ?? item.primaryThreadId, lead, item.title);
+    yield* ensureTaskOwnerThread(
+      threads,
+      previous ?? item.primaryThreadId,
+      lead,
+      item.title,
+      "Second Mate",
+    );
     yield* sql.withTransaction(
       Effect.gen(function* () {
         if (!row && !(yield* materializeDelegate(itemId)))
@@ -844,7 +858,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     for (const { id } of deliveries)
       yield* mutate({ type: "obsolete", requestId: id, reason: "Task retired." });
     yield* sql`INSERT INTO helm_reply_reads(thread_id,ordinal)
-      SELECT thread_id,ordinal FROM helm_ready_replies WHERE item_id=${item.id}
+      SELECT thread_id,ordinal FROM helm_owner_ready_replies WHERE item_id=${item.id}
       ON CONFLICT(thread_id) DO UPDATE SET ordinal=MAX(excluded.ordinal,helm_reply_reads.ordinal)`;
     const retiredAt = yield* now;
     yield* sql`UPDATE helm_items SET body=json_remove(json_set(body,'$.retiredAt',${retiredAt},'$.updatedAt',${retiredAt}),'$.canReassignPrimary') WHERE id=${item.id}`;
@@ -931,7 +945,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
           const result = yield* sql.withTransaction(
             Effect.gen(function* () {
               const [current] = yield* sql`SELECT 1 FROM helm_items i WHERE i.id=${id}
-              AND (json_extract(i.body,'$.stage')=${decision.stage} OR json_extract(i.body,'$.secondMateThreadId')<>${threadId})
+              AND (json_extract(i.body,'$.stage')=${decision.stage} OR (SELECT thread_id FROM helm_task_owners WHERE item_id=${id})<>${threadId})
               AND json_extract(i.body,'$.latestReport.threadId')=${threadId}
               AND json_extract(i.body,'$.latestReport.text')=${decision.summary}
               AND EXISTS(SELECT 1 FROM helm_requests r WHERE r.item_id=i.id

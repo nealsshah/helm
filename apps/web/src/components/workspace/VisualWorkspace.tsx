@@ -1,3 +1,4 @@
+import { workspaceOwnerThreadId } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useProject } from "../../state/entities";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -43,6 +44,7 @@ import {
   runtimeLabel,
   sourceTime,
   stageLabel,
+  usesSecondMate,
   stages,
   type BoardItem,
   type QueueEntry,
@@ -375,16 +377,14 @@ export function VisualWorkspace() {
                   const session = state.shells.find(
                     (shell) => shell.environmentId === environmentId && shell.id === threadId,
                   );
-                  const isLead = linked?.item.secondMateThreadId === threadId;
-                  const title = isLead
+                  const isOwner = linked && workspaceOwnerThreadId(linked.item) === threadId;
+                  const title = isOwner
                     ? linked.item.title
                     : (session?.title ?? linked?.item.title ?? threadId);
                   const host = hosts.find((host) => host.environmentId === environmentId);
                   const hostLabel = hosts.length > 1 ? host?.label : null;
                   const viewingLead =
-                    linked &&
-                    !target?.worker &&
-                    (host?.secondMate || linked.item.secondMateThreadId);
+                    linked && !target?.worker && usesSecondMate(linked.item, host?.secondMate);
                   const viewingRequest =
                     !showOrchestrator &&
                     target?.environmentId === environmentId &&
@@ -403,7 +403,7 @@ export function VisualWorkspace() {
                         className="group grid w-full grid-cols-[minmax(0,1fr)_auto] content-start items-center gap-x-3 gap-y-1 rounded-xl border border-workspace-attention/30 bg-linear-to-br from-workspace-attention/10 via-workspace-attention/3 to-card px-3.5 py-3 text-left hover:border-workspace-attention/55 aria-pressed:border-workspace-attention/70 focus-visible:outline-2 focus-visible:outline-ring motion-safe:transition-colors"
                         onOpen={() => {
                           if (!viewingRequest) setReturnTo(target);
-                          select({ environmentId, itemId, threadId, worker: !isLead });
+                          select({ environmentId, itemId, threadId, worker: !isOwner });
                         }}
                       >
                         <CardTitle title={title} session={session} compact />
@@ -416,7 +416,7 @@ export function VisualWorkspace() {
                         </span>
                         <span className="col-span-2 truncate pt-1 text-2xs text-muted-foreground">
                           {linked ? stageLabel[linked.item.stage] : "Session"}
-                          {isLead && " · Second Mate"}
+                          {isOwner && (linked.item.directWorker ? " · Worker" : " · Second Mate")}
                           {linked && linked.item.title !== title && ` · ${linked.item.title}`}
                           {hostLabel && ` · ${hostLabel}`}
                         </span>
@@ -542,8 +542,8 @@ export function VisualWorkspace() {
           <AlertDialogHeader>
             <AlertDialogTitle>Retire {confirmation?.item.title}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This stops active work, settles the Second Mate and workers, and removes the card from
-              the board.
+              This stops active work, settles the task’s sessions, and removes the card from the
+              board.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {delivery.error && (

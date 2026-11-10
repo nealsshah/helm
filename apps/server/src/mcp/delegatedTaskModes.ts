@@ -1,6 +1,6 @@
 import {
   ProviderDriverKind,
-  ProviderInstanceId,
+  WORKSPACE_WORKER_MODEL,
   type OrchestratorMcpTarget,
   type ModelSelection,
   OrchestratorMcpFailure,
@@ -11,6 +11,12 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+
+export const directWorkerCannotDelegate = () =>
+  new OrchestratorMcpFailure({
+    code: "capability_denied",
+    message: "This task was assigned to one direct worker. Do the work in this chat.",
+  });
 
 /** How much a runtime mode allows, narrowest first. */
 export function runtimeModeRank(mode: RuntimeMode): number {
@@ -98,8 +104,8 @@ export function taskPrompt(input: OrchestratorMcpDelegateTaskInput): string {
 }
 
 const workerDriver = ProviderDriverKind.make("claudeAgent");
-export const workerInstance = ProviderInstanceId.make("claudeAgent");
-export const workerModel = "claude-opus-5-5";
+export const workerInstance = WORKSPACE_WORKER_MODEL.instanceId;
+export const workerModel = WORKSPACE_WORKER_MODEL.model;
 
 export function workspaceWorkerTarget(
   target: OrchestratorMcpTarget | undefined,

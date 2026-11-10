@@ -1,3 +1,4 @@
+import type { WorkspaceRole } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
@@ -269,7 +270,7 @@ it.each([
 });
 
 function makeLocalCommandHarness(input: {
-  readonly workspaceRole?: "firstMate" | "secondMate" | "worker";
+  readonly workspaceRole?: WorkspaceRole;
   readonly text: string;
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
@@ -1788,7 +1789,7 @@ effectIt.effect("does not mistake a failed state read for a superseded run", () 
   }),
 );
 
-effectIt.effect.each([undefined, "firstMate", "secondMate", "worker"] as const)(
+effectIt.effect.each([undefined, "firstMate", "secondMate", "worker", "directWorker"] as const)(
   "scopes board instructions to the role on each provider turn (%s)",
   (workspaceRole) =>
     Effect.gen(function* () {
@@ -1803,7 +1804,9 @@ effectIt.effect.each([undefined, "firstMate", "secondMate", "worker"] as const)(
       expect(prompt?.includes("t3_workspace_start_task")).toBe(workspaceRole === "firstMate");
       expect(prompt?.includes("mode async")).toBe(workspaceRole === "secondMate");
       expect(prompt?.includes("t3_workspace_checkpoint")).toBe(
-        workspaceRole === "worker" || workspaceRole === "secondMate",
+        workspaceRole === "worker" ||
+          workspaceRole === "secondMate" ||
+          workspaceRole === "directWorker",
       );
     }),
 );

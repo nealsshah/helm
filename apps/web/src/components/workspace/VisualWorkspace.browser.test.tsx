@@ -64,7 +64,7 @@ it("leaves a discussion selected when another work item requests attention and r
   const shape = work("Shape", "planning"),
     build = work("Implement", "building"),
     qa = work("Verify", "qa"),
-    review = work("Review", "qa");
+    review: WorkItem = { ...work("Review", "qa"), directWorker: true };
   const items = [shape, build, qa, review];
   const worker = ThreadId.make("verification-worker");
   const qaWithWorker = { ...qa, sessions: [{ threadId: worker, role: "QA worker" }] };
@@ -186,6 +186,32 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(screen.getByText("Opening Second Mate…")).toBeVisible();
   await screen.getByRole("button", { name: "Close work panel" }).click();
   await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
+
+  const directCard = qaColumn.getByRole("button", { name: /^Review/ });
+  await directCard.click();
+  await expect.element(screen.getByText("Session review", { exact: true })).toBeVisible();
+  const directReply = {
+    key: "direct-reply",
+    environmentId: env,
+    itemId: review.id,
+    threadId: review.primaryThreadId,
+    kind: "attention",
+    replyId: "direct-answer",
+    prompt: "Worker replied",
+    createdAt: timestamp,
+  };
+  runWorkspace.mockClear();
+  snapshot = { ...snapshot, requests: [...snapshot.requests, directReply] };
+  await screen.rerender(ui());
+  const directAttention = needsMe.getByRole("button", { name: "Review", exact: true });
+  await expect.element(directAttention).toHaveAttribute("aria-pressed", "true");
+  await directAttention.click();
+  await expect.element(screen.getByText("Session review", { exact: true })).toBeVisible();
+  expect(runWorkspace).toHaveBeenCalledExactlyOnceWith(env, {
+    type: "readReply",
+    itemId: review.id,
+    replyId: "direct-answer",
+  });
 
   const original = snapshot.requests[0]!;
   const reply = {

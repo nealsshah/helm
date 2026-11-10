@@ -11,6 +11,14 @@ export const WORKSPACE_MATE_MODEL = {
   options: [{ id: "reasoningEffort", value: "high" }],
 } satisfies ModelSelection;
 
+export const WORKSPACE_WORKER_MODEL = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-opus-5-5",
+} satisfies ModelSelection;
+
+export const WorkspaceRole = Schema.Literals(["firstMate", "secondMate", "worker", "directWorker"]);
+export type WorkspaceRole = typeof WorkspaceRole.Type;
+
 export const WorkspaceStage = Schema.Literals([
   "planning",
   "building",
@@ -72,6 +80,7 @@ export const WorkItem = Schema.Struct({
   priority: Schema.Int,
   primaryThreadId: ThreadId,
   secondMateThreadId: Schema.optional(ThreadId),
+  directWorker: Schema.optionalKey(Schema.Literal(true)),
   retiredAt: Schema.optional(IsoDateTime),
   canReassignPrimary: Schema.optional(Schema.Boolean),
   sessions: Schema.Array(Session),
@@ -83,6 +92,10 @@ export const WorkItem = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type WorkItem = typeof WorkItem.Type;
+export function workspaceOwnerThreadId(item: WorkItem) {
+  return item.directWorker ? item.primaryThreadId : item.secondMateThreadId;
+}
+
 const RequestKind = Schema.Literals(["question", "review", "error"]);
 export const WorkspaceRequest = Schema.Struct({
   id: Text,

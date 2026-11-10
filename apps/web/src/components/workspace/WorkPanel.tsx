@@ -25,7 +25,7 @@ import {
 } from "../ui/menu";
 import { SessionProjectPicker } from "./SessionProjectPicker";
 import { useDelivery } from "./WorkspaceForms";
-import { runtimeLabel, safeArtifactUrl, stageLabel } from "./workspaceModel";
+import { runtimeLabel, safeArtifactUrl, stageLabel, usesSecondMate } from "./workspaceModel";
 import { useWorkspaceCommand, type WorkspaceState } from "./workspaceState";
 import type { PanelTarget } from "./workspaceTab";
 
@@ -154,7 +154,7 @@ export function WorkPanel({
   const navigate = useNavigate();
   const host = state.hosts.find((entry) => entry.environmentId === environmentId);
   const item = host?.snapshot?.items.find((entry) => entry.id === itemId);
-  const hasLead = Boolean(item && (host?.secondMate || item.secondMateThreadId));
+  const hasLead = item !== undefined && usesSecondMate(item, host?.secondMate);
   const workers = item
     ? [
         ...(item.primaryThreadId !== item.secondMateThreadId

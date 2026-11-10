@@ -33,6 +33,10 @@ export interface QueueEntry {
   createdAt: string;
 }
 
+export function usesSecondMate(item: WorkItem, hostSupportsSecondMate: boolean | undefined) {
+  return !item.directWorker && Boolean(item.secondMateThreadId || hostSupportsSecondMate);
+}
+
 export function itemHasThread(item: WorkItem, threadId: ThreadId) {
   return (
     item.secondMateThreadId === threadId ||

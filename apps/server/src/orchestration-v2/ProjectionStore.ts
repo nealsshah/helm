@@ -1,6 +1,6 @@
 import { workspaceRoleForThread } from "../workspace/VisualWorkspaceSchema.ts";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
-import { pendingGuestMessageCount } from "@t3tools/contracts";
+import { pendingGuestMessageCount, type WorkspaceRole } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -392,7 +392,7 @@ export type ProjectionRecordField = Exclude<
 export type ProjectionRecords<K extends ProjectionRecordField> = Pick<
   OrchestrationV2ThreadProjection,
   "thread" | K
-> & { readonly workspaceRole?: "firstMate" | "secondMate" | "worker" };
+> & { readonly workspaceRole?: WorkspaceRole };
 
 export interface ProjectionTimelinePageOptions {
   readonly afterPosition?: number;
@@ -601,7 +601,7 @@ export interface ProjectionStoreV2Shape {
       | "turnItems"
     > & {
       readonly hasConversation: boolean;
-      readonly workspaceRole: "firstMate" | "secondMate" | "worker" | undefined;
+      readonly workspaceRole: WorkspaceRole | undefined;
     },
     ProjectionStoreV2Error
   >;

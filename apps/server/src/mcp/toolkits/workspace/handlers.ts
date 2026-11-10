@@ -129,8 +129,11 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
         .startTask(thread.threadId, input)
         .pipe(Effect.mapError(workspaceFailure));
       return {
-        ...result,
-        link: McpInvocationContext.threadLinkFor(caller.scope, result.secondMateThreadId),
+        itemId: result.itemId,
+        ...("workerThreadId" in result
+          ? { workerThreadId: result.workerThreadId }
+          : { secondMateThreadId: result.threadId }),
+        link: McpInvocationContext.threadLinkFor(caller.scope, result.threadId),
       };
     }),
   ),

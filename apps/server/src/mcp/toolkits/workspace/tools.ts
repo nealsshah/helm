@@ -58,18 +58,22 @@ const read = Tool.make("t3_workspace_read", {
 const startTask = Tool.make("t3_workspace_start_task", {
   ...shared,
   description:
-    "First Mate: start a task and its Second Mate directly in the named project (title, workspace path or ID). Omit project for the current project. Reuse itemId on retries.",
+    "First Mate: start a task with a Second Mate by default. Set mode to direct only when the person asks for a worker without a Second Mate. Name a project by title, workspace path or ID, or omit project for the current project. Reuse itemId on retries.",
   parameters: Schema.Struct({
     itemId: TrimmedNonEmptyString,
     title: TrimmedNonEmptyString,
     brief: TrimmedNonEmptyString,
+    mode: Schema.optional(Schema.Literals(["managed", "direct"])),
     project: Schema.optional(TrimmedNonEmptyString),
   }),
-  success: Schema.Struct({
-    itemId: TrimmedNonEmptyString,
-    secondMateThreadId: ThreadId,
-    link: Schema.String,
-  }),
+  success: Schema.Union([
+    Schema.Struct({
+      itemId: TrimmedNonEmptyString,
+      secondMateThreadId: ThreadId,
+      link: Schema.String,
+    }),
+    Schema.Struct({ itemId: TrimmedNonEmptyString, workerThreadId: ThreadId, link: Schema.String }),
+  ]),
 })
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
@@ -87,7 +91,8 @@ const update = Tool.make("t3_workspace_update", {
 
 const checkpoint = Tool.make("t3_workspace_checkpoint", {
   ...shared,
-  description: "Report stage and next action. Worker attention goes to its Second Mate.",
+  description:
+    "Report your stage, next action and any blocker. A card owner flags the person. A managed worker flags its Second Mate.",
   parameters: WorkspaceCheckpoint,
   success: Schema.Struct({ itemId: TrimmedNonEmptyString }),
 }).annotate(Tool.Destructive, false);

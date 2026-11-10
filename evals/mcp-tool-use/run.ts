@@ -290,7 +290,7 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
-    workspaceRole: Schema.optional(Schema.Literals(["firstMate", "secondMate", "worker"])),
+    workspaceRole: Schema.optional(Contracts.WorkspaceRole),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({

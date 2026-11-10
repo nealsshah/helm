@@ -44,7 +44,10 @@ it("exchanges workspace snapshots with servers and clients using a single orches
         resolvedAt: null,
       },
     ],
-    items: [item, { ...item, id: "retired", retiredAt: item.updatedAt }],
+    items: [
+      { ...item, directWorker: true as const },
+      { ...item, id: "retired", retiredAt: item.updatedAt },
+    ],
     orchestratorThreadIds: [ThreadId.make("first"), ThreadId.make("second")],
   };
   const wire = encode(snapshot);

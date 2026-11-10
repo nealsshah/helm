@@ -26,6 +26,14 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
     delivery_id TEXT
   )`;
   yield* sql`CREATE INDEX IF NOT EXISTS helm_requests_item ON helm_requests(item_id)`;
+  yield* sql`CREATE VIEW IF NOT EXISTS helm_task_owners(item_id,thread_id,role) AS
+    SELECT id,json_extract(body,'$.secondMateThreadId'),'secondMate' FROM helm_items
+      WHERE json_extract(body,'$.secondMateThreadId') IS NOT NULL
+    UNION ALL
+    SELECT id,json_extract(body,'$.primaryThreadId'),'directWorker' FROM helm_items
+      WHERE json_extract(body,'$.directWorker')=1`;
+  yield* sql`CREATE UNIQUE INDEX IF NOT EXISTS helm_direct_worker ON helm_items(json_extract(body,'$.primaryThreadId'))
+    WHERE json_extract(body,'$.directWorker')=1`;
   const hadReplyReads =
     yield* sql`SELECT 1 FROM sqlite_schema WHERE type='table' AND name='helm_reply_reads'`;
   yield* sql`CREATE TABLE IF NOT EXISTS helm_reply_reads (thread_id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL)`;
@@ -33,7 +41,8 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
     // Preserve visits made before Helm tracked deliberate opens separately from passive chat visits.
     yield* sql`INSERT INTO helm_reply_reads(thread_id, ordinal)
       SELECT t.thread_id, MAX(r.ordinal) FROM helm_items i
-      JOIN orchestration_v2_projection_threads t ON t.thread_id=json_extract(i.body,'$.secondMateThreadId')
+      JOIN helm_task_owners o ON o.item_id=i.id
+      JOIN orchestration_v2_projection_threads t ON t.thread_id=o.thread_id
       JOIN orchestration_v2_projection_runs r ON r.thread_id=t.thread_id
       WHERE r.completed_at<=json_extract(t.payload_json,'$.lastVisitedAt') GROUP BY t.thread_id`;
   }
@@ -42,11 +51,13 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
     WHERE role='user' AND json_extract(payload_json,'$.createdBy')='user'
       AND json_extract(payload_json,'$.scheduledTaskId') IS NULL
       AND json_extract(payload_json,'$.creationSource') IN ('web','mobile')`;
-  yield* sql`CREATE VIEW IF NOT EXISTS helm_ready_replies AS
+  yield* sql`DROP VIEW IF EXISTS helm_ready_replies`;
+  yield* sql`CREATE VIEW IF NOT EXISTS helm_owner_ready_replies AS
     SELECT i.id AS item_id,t.thread_id,r.run_id,r.ordinal,r.completed_at,
       substr(trim(json_extract(answer.payload_json,'$.text')),1,240) AS excerpt
     FROM helm_items i
-    JOIN orchestration_v2_projection_threads t ON t.thread_id=json_extract(i.body,'$.secondMateThreadId')
+    JOIN helm_task_owners o ON o.item_id=i.id
+    JOIN orchestration_v2_projection_threads t ON t.thread_id=o.thread_id
     JOIN orchestration_v2_projection_messages prompt ON prompt.rowid=(
       SELECT rowid FROM orchestration_v2_projection_messages WHERE thread_id=t.thread_id
         AND role='user' AND json_extract(payload_json,'$.createdBy')='user'
@@ -254,9 +265,9 @@ export const workspaceRoleForThread = Effect.fn("VisualWorkspace.roleForThread")
   threadId: ThreadId,
 ) {
   const [lead] = yield* sql<{
-    role: "firstMate" | "secondMate";
+    role: "firstMate" | "secondMate" | "directWorker";
   }>`SELECT 'firstMate' AS role FROM helm_orchestrators WHERE thread_id=${threadId}
-    UNION ALL SELECT 'secondMate' FROM helm_items WHERE json_extract(body,'$.secondMateThreadId')=${threadId} LIMIT 1`;
+    UNION ALL SELECT role FROM helm_task_owners WHERE thread_id=${threadId} LIMIT 1`;
   if (lead) return lead.role;
   return (yield* workspaceItemIdForThread(sql, threadId)) === undefined
     ? undefined

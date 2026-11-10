@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { ClaudeProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -32,20 +33,25 @@ import * as Replay from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Settings from "../serverSettings.ts";
 import { makeVisualWorkspace } from "./VisualWorkspace.ts";
-import { ensureWorkspaceSchema } from "./VisualWorkspaceSchema.ts";
+import { ensureWorkspaceSchema, workspaceRoleForThread } from "./VisualWorkspaceSchema.ts";
 
 const dependencies = Layer.mergeAll(
   Replay.layerWithRegistry(
     { name: "helm-replies" },
-    ProviderAdapterRegistry.layerFromAdapters([
-      {
-        instanceId: ProviderInstanceId.make("codex"),
-        driver: ProviderDriverKind.make("codex"),
-        getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+    ProviderAdapterRegistry.layerFromAdapters(
+      (
+        [
+          ["codex", CodexProviderCapabilitiesV2],
+          ["claudeAgent", ClaudeProviderCapabilitiesV2],
+        ] as const
+      ).map(([driver, capabilities]) => ({
+        instanceId: ProviderInstanceId.make(driver),
+        driver: ProviderDriverKind.make(driver),
+        getCapabilities: () => Effect.succeed(capabilities),
         planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
         openSession: () => Effect.die("Effect execution is disabled for workspace receipt tests."),
-      },
-    ]),
+      })),
+    ),
     { databaseLayer: Sqlite.layerMemory, runEffectWorker: false },
   ),
   CommandReceipts.layer.pipe(Layer.provide(Sqlite.layerMemory)),
@@ -1353,7 +1359,7 @@ it.effect(
       yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES(${target},'Atlas','/tmp/atlas','[]','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`;
       const other = { ...task, itemId: "other-project-task", project: "atlas" };
       const started = yield* workspace.startTask(primary, other);
-      const destination = yield* t3.getThreadRecords(started.secondMateThreadId, ["messages"]);
+      const destination = yield* t3.getThreadRecords(started.threadId, ["messages"]);
       expect(destination.thread.projectId).toBe(target);
       expect(destination.thread.worktreePath).toBeNull();
       expect(destination.messages.map((m) => m.text)).toEqual([task.brief]);
@@ -1368,18 +1374,99 @@ it.effect(
       const saved = (yield* workspace.get()).items.filter((item) => item.id === task.itemId);
       expect(saved).toMatchObject([
         {
-          primaryThreadId: first.secondMateThreadId,
-          secondMateThreadId: first.secondMateThreadId,
+          primaryThreadId: first.threadId,
+          secondMateThreadId: first.threadId,
           sessions: [],
         },
       ]);
       const threads = yield* Threads.ThreadManagementService;
-      const { messages } = yield* threads.getThreadRecords(first.secondMateThreadId, ["messages"]);
+      const { messages } = yield* threads.getThreadRecords(first.threadId, ["messages"]);
       expect(messages.map((message) => message.text)).toEqual([task.brief]);
       const reopened = yield* makeVisualWorkspace;
       expect(yield* reopened.startTask(primary, task)).toEqual(first);
       expect(
         (yield* Effect.flip(reopened.startTask(primary, { ...task, itemId: "build" }))).message,
       ).toContain("already");
+    }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect(
+  "a direct task's worker owns its card and asks the person without creating a Second Mate",
+  () =>
+    Effect.gen(function* () {
+      const workspace = yield* fixture;
+      const sql = yield* SqlClient.SqlClient;
+      const t3 = yield* Orchestrator.OrchestratorV2;
+      yield* workspace.command({ type: "orchestrator", threadId: primary });
+      const task = {
+        itemId: "direct",
+        title: "Fix a label",
+        brief: "Fix the label.",
+        mode: "direct",
+      } as const;
+      const { threadId } = yield* workspace.startTask(primary, task);
+      expect(yield* (yield* makeVisualWorkspace).startTask(primary, task)).toEqual({
+        itemId: task.itemId,
+        threadId,
+        workerThreadId: threadId,
+      });
+      expect(
+        (yield* Effect.flip(workspace.startTask(primary, { ...task, mode: "managed" }))).message,
+      ).toContain("already");
+      const owner = yield* t3.getThreadRecords(threadId, ["messages"]);
+      expect(owner.thread.modelSelection).toMatchObject({
+        instanceId: "claudeAgent",
+        model: "claude-opus-5-5",
+      });
+      expect(owner.messages.map((message) => message.text)).toEqual([task.brief]);
+      expect(yield* workspaceRoleForThread(sql, threadId)).toBe("directWorker");
+      expect(
+        (yield* Effect.flip(
+          workspace.command({ type: "update", itemId: "build", stage: "complete" }, { threadId }),
+        )).message,
+      ).toContain("own task");
+      expect(
+        (yield* Effect.flip(workspace.command({ type: "ensureSecondMate", itemId: task.itemId })))
+          .message,
+      ).toContain("worker");
+      expect(yield* workspace.secondMateForWorker(threadId)).toBeUndefined();
+      const report = {
+        stage: "qa",
+        summary: "Which label should ship?",
+        needsAttention: true,
+      } as const;
+      yield* workspace.checkpoint(threadId, report);
+      const board = yield* workspace.get();
+      const card = board.items.find((item) => item.id === task.itemId)!;
+      expect(card).toMatchObject({
+        directWorker: true,
+        primaryThreadId: threadId,
+        stage: "qa",
+        sessions: [],
+      });
+      expect(card.secondMateThreadId).toBeUndefined();
+      const request = board.requests.find((entry) => entry.itemId === task.itemId)!;
+      expect(request).toMatchObject({ threadId, prompt: report.summary, status: "open" });
+      yield* workspace.command({ type: "respond", requestId: request.id, response: "Use Save." });
+      expect((yield* t3.getThreadRecords(threadId, ["messages"])).messages.at(-1)?.text).toContain(
+        "Use Save.",
+      );
+      yield* workspace.checkpoint(threadId, {
+        stage: "complete",
+        summary: "Verified Save.",
+        needsAttention: false,
+      });
+      const retired = yield* workspace.command({
+        type: "retire",
+        itemId: task.itemId,
+        onlyIfDone: true,
+      });
+      expect(retired.items.find((item) => item.id === task.itemId)?.retiredAt).toBeTruthy();
+      const restored = yield* workspace.command({ type: "restore", itemId: task.itemId });
+      expect(restored.items.find((item) => item.id === task.itemId)).toMatchObject({
+        primaryThreadId: threadId,
+        directWorker: true,
+        stage: "complete",
+      });
     }).pipe(Effect.provide(testLayer)),
 );

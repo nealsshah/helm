@@ -6,6 +6,7 @@ import {
   WorkItem,
   WorkspaceError,
   WORKSPACE_MATE_MODEL,
+  WORKSPACE_WORKER_MODEL,
   type WorkspaceCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -21,32 +22,33 @@ const encodeItem = Schema.encodeEffect(Schema.fromJsonString(WorkItem));
 export const secondMateId = (itemId: string) => ThreadId.make(`helm:second-mate:${itemId}`);
 const failure = (message: string) => new WorkspaceError({ message });
 
-export const ensureMateThread = Effect.fn("VisualWorkspace.ensureMateThread")(function* (
+export const ensureTaskOwnerThread = Effect.fn("VisualWorkspace.ensureTaskOwnerThread")(function* (
   threads: ThreadManagementService["Service"],
   sourceThreadId: ThreadId,
-  leadId: ThreadId,
+  ownerThreadId: ThreadId,
   title: string,
+  role: "Second Mate" | "Worker",
   destination?: ProjectId,
 ) {
   const { thread: source } = yield* threads.getThreadRecords(sourceThreadId, []);
   const projectId = destination ?? source.projectId;
-  const existing = yield* threads.getThreadShell(leadId);
+  const existing = yield* threads.getThreadShell(ownerThreadId);
   if (existing) {
     if (
       existing.archivedAt ||
       existing.projectId !== projectId ||
       existing.creationSource !== "server"
     ) {
-      return yield* failure("The Second Mate chat is unavailable.");
+      return yield* failure(`The ${role} chat is unavailable.`);
     }
   } else {
     yield* threads.dispatch({
       type: "thread.create",
-      commandId: CommandId.make(`helm:create:${leadId}`),
-      threadId: leadId,
+      commandId: CommandId.make(`helm:create:${ownerThreadId}`),
+      threadId: ownerThreadId,
       projectId,
-      title: `Second Mate · ${title}`,
-      modelSelection: WORKSPACE_MATE_MODEL,
+      title: `${role} · ${title}`,
+      modelSelection: role === "Worker" ? WORKSPACE_WORKER_MODEL : WORKSPACE_MATE_MODEL,
       runtimeMode: source.runtimeMode,
       interactionMode: "default",
       branch: projectId === source.projectId ? source.branch : null,
@@ -73,9 +75,18 @@ export function makeStartWorkspaceTask({
 }) {
   return Effect.fn("VisualWorkspace.startTask")(function* (
     firstMateThreadId: ThreadId,
-    task: { itemId: string; title: string; brief: string; project?: string | undefined },
+    task: {
+      itemId: string;
+      title: string;
+      brief: string;
+      project?: string | undefined;
+      mode?: "managed" | "direct" | undefined;
+    },
   ) {
-    const lead = secondMateId(task.itemId);
+    const direct = task.mode === "direct";
+    const ownerThreadId = direct
+      ? ThreadId.make(`helm:worker:${task.itemId}`)
+      : secondMateId(task.itemId);
     const kickoff = MessageId.make(`helm:kickoff:${task.itemId}`);
     return yield* lock
       .withPermits(1)(
@@ -89,13 +100,15 @@ export function makeStartWorkspaceTask({
             retired_at: string | null;
             primary_id: string;
             brief: string;
-            lead_id: string | null;
+            second_mate_id: string | null;
+            direct_worker: number | null;
           }>`SELECT json_extract(body,'$.retiredAt') AS retired_at, json_extract(body,'$.primaryThreadId') AS primary_id,
-        json_extract(body,'$.scope') AS brief, json_extract(body,'$.secondMateThreadId') AS lead_id FROM helm_items WHERE id=${task.itemId}`;
+        json_extract(body,'$.scope') AS brief, json_extract(body,'$.directWorker') AS direct_worker, json_extract(body,'$.secondMateThreadId') AS second_mate_id FROM helm_items WHERE id=${task.itemId}`;
           if (saved?.retired_at) return yield* failure("Restore the retired task first.");
           if (
             saved
-              ? saved.lead_id !== lead || saved.primary_id !== lead
+              ? saved.primary_id !== ownerThreadId ||
+                (direct ? saved.direct_worker !== 1 : saved.second_mate_id !== ownerThreadId)
               : (yield* unassignedWorkspaceDelegates(sql, task.itemId)).length > 0
           ) {
             return yield* failure("This task ID already belongs to another task.");
@@ -118,11 +131,12 @@ export function makeStartWorkspaceTask({
               );
             destination = matches[0].project_id;
           }
-          const projectId = yield* ensureMateThread(
+          const projectId = yield* ensureTaskOwnerThread(
             threads,
             firstMateThreadId,
-            lead,
+            ownerThreadId,
             task.title,
+            direct ? "Worker" : "Second Mate",
             destination,
           );
           if (!saved) {
@@ -130,17 +144,21 @@ export function makeStartWorkspaceTask({
               {
                 type: "create",
                 itemId: task.itemId,
-                primaryThreadId: lead,
+                primaryThreadId: ownerThreadId,
                 title: task.title,
                 scope: task.brief,
               },
               DateTime.formatIso(yield* DateTime.now),
             );
-            const body = yield* encodeItem({ ...item, secondMateThreadId: lead });
+            const body = yield* encodeItem(
+              direct
+                ? { ...item, directWorker: true }
+                : { ...item, secondMateThreadId: ownerThreadId },
+            );
             yield* sql.withTransaction(
               Effect.gen(function* () {
                 yield* sql`INSERT INTO helm_items(id,body) VALUES (${task.itemId},${body})`;
-                yield* sql`INSERT INTO helm_memberships(thread_id,item_id) VALUES (${lead},${task.itemId})`;
+                yield* sql`INSERT INTO helm_memberships(thread_id,item_id) VALUES (${ownerThreadId},${task.itemId})`;
               }),
             );
             yield* notify();
@@ -149,20 +167,20 @@ export function makeStartWorkspaceTask({
             sender: string;
             text: string;
           }>`SELECT json_extract(payload_json,'$.senderThreadId') AS sender,
-        json_extract(payload_json,'$.text') AS text FROM orchestration_v2_projection_messages WHERE thread_id=${lead} AND message_id=${kickoff}`;
+        json_extract(payload_json,'$.text') AS text FROM orchestration_v2_projection_messages WHERE thread_id=${ownerThreadId} AND message_id=${kickoff}`;
           if (
             sent
               ? sent.sender !== firstMateThreadId || sent.text !== task.brief
               : saved && saved.brief !== task.brief
           ) {
             return yield* failure(
-              "This task ID already has a different kickoff. Send a follow-up to its Second Mate.",
+              "This task ID already has a different kickoff. Send a follow-up to the task conversation.",
             );
           }
           if (!sent)
             yield* threads.sendToThread({
               projectId,
-              threadId: lead,
+              threadId: ownerThreadId,
               senderThreadId: firstMateThreadId,
               commandId: CommandId.make(kickoff),
               messageId: kickoff,
@@ -172,7 +190,11 @@ export function makeStartWorkspaceTask({
               createdBy: "agent",
               creationSource: "mcp",
             });
-          return { itemId: task.itemId, secondMateThreadId: lead };
+          return {
+            itemId: task.itemId,
+            threadId: ownerThreadId,
+            ...(direct ? { workerThreadId: ownerThreadId } : { secondMateThreadId: ownerThreadId }),
+          };
         }),
       )
       .pipe(

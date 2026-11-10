@@ -1129,6 +1129,30 @@ it.effect("a task named only by environment inherits the parent's model, within 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
+it.effect("refuses local and remote delegation from a direct worker", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const a = yield* makeLaptop(database, offers);
+      yield* linkTo(a.links, b, "auto");
+      yield* seedParent(a);
+      const sql = Context.get(database, SqlClient.SqlClient);
+      yield* sql`INSERT INTO helm_items(id, body) VALUES ('csv', json_object('directWorker', 1, 'primaryThreadId', ${parentThreadId}))`;
+      for (const target of [{}, { environmentId: box.environmentId }]) {
+        const result = yield* a.call("delegate_task", { task: "Review this task.", target });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("one direct worker");
+      }
+      expect(yield* Ref.get(thread.launched)).toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
 it.effect("refuses worktree isolation for a task there before launching anything", () =>
   Effect.scoped(
     Effect.gen(function* () {

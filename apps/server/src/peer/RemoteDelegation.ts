@@ -32,6 +32,7 @@ import {
   resolveRuntimeMode,
   taskPrompt,
   workspaceWorkerTarget,
+  directWorkerCannotDelegate,
 } from "../mcp/delegatedTaskModes.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -198,6 +199,7 @@ const make = Effect.gen(function* () {
               }),
           ),
         );
+      if (parent.workspaceRole === "directWorker") return yield* directWorkerCannotDelegate();
       const parentRun = parent.runs
         .filter(ThreadManagement.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];

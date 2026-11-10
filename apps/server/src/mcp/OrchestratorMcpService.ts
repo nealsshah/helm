@@ -123,6 +123,7 @@ import {
   runtimeModeRank,
   taskPrompt,
   workspaceWorkerTarget,
+  directWorkerCannotDelegate,
 } from "./delegatedTaskModes.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -1176,6 +1177,11 @@ const make = Effect.gen(function* () {
       true,
       operation === "delegate_task" || operation === "create_threads",
     );
+    if (
+      parent.workspaceRole === "directWorker" &&
+      (operation === "delegate_task" || operation === "create_threads")
+    )
+      return yield* directWorkerCannotDelegate();
     return { scope: threadScope, parent } as const;
   });
 

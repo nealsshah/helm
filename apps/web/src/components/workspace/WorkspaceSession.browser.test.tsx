@@ -98,6 +98,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     id: threadWithHistory("retired-worker", 1).id,
     title: "Retired worker",
   };
+  const direct = threadWithHistory("direct-worker", 1);
   const base = {
     scope: "",
     attention: "none",
@@ -111,6 +112,14 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     updatedAt: time,
   } as const;
   const items: WorkItem[] = [
+    {
+      ...base,
+      id: "sample-direct",
+      title: "Verify checkout",
+      primaryThreadId: direct.id,
+      directWorker: true,
+      stage: "qa",
+    },
     {
       ...base,
       id: "retired",
@@ -139,7 +148,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     },
   ];
   using env = installFakeEnvironment(
-    [first, second, archivedWorker, askingWorker, retiredWorker],
+    [first, second, archivedWorker, askingWorker, retiredWorker, direct],
     {
       items,
       requests: [
@@ -198,6 +207,18 @@ it("keeps a work conversation editable with a maximized full-session panel and r
         .getByRole("button", { name: retiredWorker.title }),
     )
     .not.toBeInTheDocument();
+  await board
+    .getByRole("region", { name: "QA", exact: true })
+    .getByRole("button", { name: /Verify checkout/ })
+    .click();
+  await expectRole("Worker");
+  await expect
+    .element(screen.getByText("Answer 0 for direct-worker.", { exact: true }))
+    .toBeVisible();
+  await screen.getByRole("link", { name: "Open full session" }).click();
+  await expectRole("Worker");
+  await screen.getByRole("link", { name: "Back to workspace" }).click();
+  await expectRole("Worker");
   await screen.getByRole("button", { name: "Retired tasks" }).click();
   await expect.element(page.getByRole("menuitem", { name: "Restore Retired task" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
