@@ -2805,6 +2805,14 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       : {}),
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(platform === "mac" && isHelmBuild(version)
+        ? [
+            {
+              from: (yield* Path.Path).join(yield* RepoRoot, "scripts/lib/helm-update.yml"),
+              to: "app-update.yml",
+            },
+          ]
+        : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),

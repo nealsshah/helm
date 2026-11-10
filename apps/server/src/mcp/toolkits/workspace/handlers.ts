@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import * as Workspace from "../../../workspace/VisualWorkspace.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { assertNotLinked } from "../../linkOrigin.ts";
 import { assertFullAccess, assertLiveCaller, readCaller, unavailable } from "../../threadAccess.ts";
@@ -18,7 +19,9 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
       yield* assertLiveCaller(caller);
       const actor = caller.scope.thread;
       const workspace = yield* Workspace.VisualWorkspace;
-      const snapshot = yield* workspace.get().pipe(Effect.mapError(workspaceFailure));
+      const snapshot = yield* workspace
+        .get({ includeWorkerRequests: true })
+        .pipe(Effect.mapError(workspaceFailure));
       const managesBoard =
         actor === undefined ||
         (!actor.subagent && snapshot.orchestratorThreadIds.includes(actor.threadId));
@@ -31,15 +34,26 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
       }
       const items = snapshot.items.filter(
         (item) =>
-          (itemId === undefined || item.id === itemId) &&
+          (itemId === undefined ? !item.retiredAt : item.id === itemId) &&
           (managesBoard ||
             item.primaryThreadId === actor?.threadId ||
+            (actor !== undefined && item.secondMateThreadId === actor.threadId) ||
             item.sessions.some((session) => session.threadId === actor?.threadId)),
+      );
+      const retiredThreads = new Set(
+        snapshot.items
+          .filter((item) => item.retiredAt)
+          .flatMap((item) => [
+            item.primaryThreadId,
+            ...(item.secondMateThreadId ? [item.secondMateThreadId] : []),
+            ...item.sessions.map((session) => session.threadId),
+          ]),
       );
       const itemIds = new Set(items.map((item) => item.id));
       const threadIds = new Set(
         items.flatMap((item) => [
           item.primaryThreadId,
+          ...(item.secondMateThreadId ? [item.secondMateThreadId] : []),
           ...item.sessions.map((session) => session.threadId),
         ]),
       );
@@ -55,6 +69,7 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
           (shell) =>
             threadIds.has(shell.id) ||
             (all &&
+              !retiredThreads.has(shell.id) &&
               (shell.pendingRuntimeRequest ||
                 shell.hasActionableProposedPlan ||
                 shell.status === "failed")),
@@ -92,25 +107,102 @@ export const layer = McpToolAccess.toLayer(WorkspaceToolkit, {
       };
     }),
   ),
-  t3_workspace_update: McpToolAccess.writesWithCapability(({ command }) =>
+  t3_workspace_start_task: McpToolAccess.writesWithCapability((input) =>
     Effect.gen(function* () {
       const caller = yield* readCaller();
-      const actor = caller.scope.thread;
-      if (actor === undefined || command.type !== "report") {
-        if (actor?.subagent) {
-          return yield* new OrchestratorMcpFailure({
-            code: "capability_denied",
-            message: "A subagent can only publish activity or request input.",
-          });
-        }
-        yield* assertFullAccess(
-          caller,
-          "Managing the workspace requires full-access/default mode.",
-        );
+      const { thread } = yield* McpInvocationContext.requireThreadScope(
+        caller.scope,
+        "t3_workspace_start_task",
+      );
+      if (thread.subagent) {
+        return yield* new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message: "Only a First Mate can start a workspace task.",
+        });
       }
+      yield* assertFullAccess(
+        caller,
+        "Starting a workspace task requires full-access/default mode.",
+      );
       const workspace = yield* Workspace.VisualWorkspace;
-      yield* workspace.command(command, actor).pipe(Effect.mapError(workspaceFailure));
-      return { itemId: command.itemId };
+      const result = yield* workspace
+        .startTask(thread.threadId, input)
+        .pipe(Effect.mapError(workspaceFailure));
+      return {
+        ...result,
+        link: McpInvocationContext.threadLinkFor(caller.scope, result.secondMateThreadId),
+      };
     }),
+  ),
+  t3_workspace_checkpoint: McpToolAccess.actsAsCaller((decision) =>
+    Effect.gen(function* () {
+      const { scope } = yield* readCaller();
+      const { thread } = yield* McpInvocationContext.requireThreadScope(
+        scope,
+        "t3_workspace_checkpoint",
+      );
+      const workspace = yield* Workspace.VisualWorkspace;
+      const itemId = yield* workspace
+        .checkpoint(thread.threadId, decision)
+        .pipe(Effect.mapError(workspaceFailure));
+      return { itemId };
+    }),
+  ),
+  t3_workspace_update: McpToolAccess.either(
+    ({ command }) => command.type === "respond",
+    McpToolAccess.writesThreads(
+      () => [],
+      ({ command }) =>
+        Effect.gen(function* () {
+          const caller = yield* readCaller();
+          const { thread } = yield* McpInvocationContext.requireThreadScope(
+            caller.scope,
+            "t3_workspace_update",
+          );
+          yield* assertNotLinked(caller, "answer a workspace worker");
+          if (command.type !== "respond") return yield* unavailable();
+          const workspace = yield* Workspace.VisualWorkspace;
+          yield* workspace.command(command, thread).pipe(Effect.mapError(workspaceFailure));
+          return { itemId: command.itemId };
+        }),
+    ),
+    McpToolAccess.writesWithCapability(({ command }) =>
+      Effect.gen(function* () {
+        const caller = yield* readCaller();
+        const actor = caller.scope.thread;
+        if (command.type === "ensureSecondMate")
+          yield* McpInvocationContext.requireThreadScope(caller.scope, "t3_workspace_update");
+        if (actor === undefined || command.type !== "report") {
+          if (actor?.subagent) {
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: "A subagent can only publish activity or request input.",
+            });
+          }
+          yield* assertFullAccess(
+            caller,
+            "Managing the workspace requires full-access/default mode.",
+          );
+        }
+        const workspace = yield* Workspace.VisualWorkspace;
+        const snapshot = yield* workspace
+          .command(command, actor)
+          .pipe(Effect.mapError(workspaceFailure));
+        if (command.type === "ensureSecondMate") {
+          const id = snapshot.items.find((item) => item.id === command.itemId)?.secondMateThreadId;
+          if (!id)
+            return yield* new OrchestratorMcpFailure({
+              code: "orchestration_error",
+              message: "The task's Second Mate is unavailable.",
+            });
+          return {
+            itemId: command.itemId,
+            secondMateThreadId: id,
+            link: McpInvocationContext.threadLinkFor(caller.scope, id),
+          };
+        }
+        return { itemId: command.itemId };
+      }),
+    ),
   ),
 });

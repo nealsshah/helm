@@ -6,10 +6,12 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   WorkspaceAgentCommand,
+  WorkspaceCheckpoint,
   WorkspaceSnapshot,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
+import * as McpSchema from "effect/ai/McpSchema";
 
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as Workspace from "../../../workspace/VisualWorkspace.ts";
@@ -27,7 +29,7 @@ const shared = {
 
 const read = Tool.make("t3_workspace_read", {
   ...shared,
-  description: "Read the work board, decisions and sessions needing attention. Filter by itemId.",
+  description: "Read tasks, decisions and open requests.",
   parameters: Schema.Struct({ itemId: Schema.optional(TrimmedNonEmptyString) }),
   success: Schema.Struct({
     ...WorkspaceSnapshot.fields,
@@ -53,14 +55,41 @@ const read = Tool.make("t3_workspace_read", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 
-const update = Tool.make("t3_workspace_update", {
+const startTask = Tool.make("t3_workspace_start_task", {
   ...shared,
   description:
-    "Report progress on your assigned item using callerThreadId. Set report.stage as work changes: planning for scope, building for changes, qa for checks or review, complete for verified delivery. To bring your session to Needs me for any human action, set report.needsAttention to true, summarize the reason in text and explain the next step in chat. A direct chat reply clears attention. Set needsAttention to false if you resume independently. The workspace orchestrator can also manage work, sessions, dependencies and milestones.",
+    "First Mate: start a task and its Second Mate directly in the named project (title, workspace path or ID). Omit project for the current project. Reuse itemId on retries.",
+  parameters: Schema.Struct({
+    itemId: TrimmedNonEmptyString,
+    title: TrimmedNonEmptyString,
+    brief: TrimmedNonEmptyString,
+    project: Schema.optional(TrimmedNonEmptyString),
+  }),
+  success: Schema.Struct({
+    itemId: TrimmedNonEmptyString,
+    secondMateThreadId: ThreadId,
+    link: Schema.String,
+  }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
+
+const update = Tool.make("t3_workspace_update", {
+  ...shared,
+  description: "Manage tasks. Second Mates can answer worker requests.",
   parameters: Schema.Struct({ command: WorkspaceAgentCommand }),
   success: Schema.Struct({
     itemId: TrimmedNonEmptyString,
+    secondMateThreadId: Schema.optional(ThreadId),
+    link: Schema.optional(Schema.String),
   }),
 }).annotate(Tool.Destructive, false);
 
-export const WorkspaceToolkit = Toolkit.make(read, update);
+const checkpoint = Tool.make("t3_workspace_checkpoint", {
+  ...shared,
+  description: "Report stage and next action. Worker attention goes to its Second Mate.",
+  parameters: WorkspaceCheckpoint,
+  success: Schema.Struct({ itemId: TrimmedNonEmptyString }),
+}).annotate(Tool.Destructive, false);
+
+export const WorkspaceToolkit = Toolkit.make(read, update, checkpoint, startTask);

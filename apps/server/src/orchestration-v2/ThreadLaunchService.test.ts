@@ -1,3 +1,4 @@
+import { WorkspaceError } from "@t3tools/contracts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -714,6 +715,25 @@ it.effect("keeps native maintenance commands out of steering and restart message
     }).pipe(Effect.provide(harness.layer));
   }),
 );
+
+it.effect("keeps the first message unsent until First Mate registration succeeds", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const input = launchInput({
+      command: "command:first-mate",
+      thread: "thread:first-mate",
+      message: "Start a task",
+    });
+    const refused = () => Effect.fail(new WorkspaceError({ message: "registration unavailable" }));
+    yield* Effect.flip(launches.launch({ ...input, registerFirstMate: refused }));
+    assert.equal(yield* threads.getMessageCount(input.threadId), 0);
+    yield* launches.launch({ ...input, registerFirstMate: () => Effect.void });
+    yield* launches.launch({ ...input, registerFirstMate: refused });
+    assert.equal(yield* threads.getMessageCount(input.threadId), 1);
+  }).pipe(Effect.provide(harness.layer));
+});
 
 it.effect("arms durable title generation after accepting the first message", () =>
   Effect.gen(function* () {

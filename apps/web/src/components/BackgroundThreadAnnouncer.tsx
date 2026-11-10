@@ -16,6 +16,8 @@ import {
   resolveBackgroundThreadRequest,
 } from "./backgroundThreadAnnouncement";
 
+import { triagesThreadInput, workspaceTriageRoles } from "./workspace/workspaceHost";
+
 const backgroundThreadLiveRegion = createLiveRegion();
 const attachBackgroundThreadRegion = backgroundThreadLiveRegion.attach;
 
@@ -46,12 +48,21 @@ export function startBackgroundThreadAnnouncements(
       // Subagents and side chats have no row of their own; their requests surface on the parent.
       if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) continue;
       if (!liveEnvironmentIds.has(thread.environmentId)) continue;
+      const role = registry.get(workspaceTriageRoles(thread.environmentId)).get(thread.id);
+      if (role === "retired") continue;
+      const pending = resolveBackgroundThreadRequest(thread);
+      const triaged =
+        pending.request === "input" && triagesThreadInput(role, thread.hasPendingUserInput);
       snapshots.push({
         key: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         title: thread.title,
-        ...resolveBackgroundThreadRequest(thread),
+        request: triaged ? null : pending.request,
+        requestId: triaged ? null : pending.requestId,
         runId: thread.latestRun?.runId ?? null,
-        runStatus: thread.latestRun?.status ?? null,
+        runStatus:
+          role === "worker" && thread.latestRun?.status === "failed"
+            ? null
+            : (thread.latestRun?.status ?? null),
         activeRunId: thread.runtime?.activeRunId ?? null,
         snoozed: effectiveSnoozed(thread, { now }),
       });

@@ -1,4 +1,8 @@
-import type { EnvironmentId, PullRequestLinkedThreadsResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PullRequestLinkedThreadsResult,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
 
 import { dispatchCommandPalette, isCommandPaletteMounted } from "./commandPaletteStore";
 
@@ -7,7 +11,13 @@ export interface CommandPaletteLinkedThreads {
   readonly threads: PullRequestLinkedThreadsResult["threads"];
 }
 
+export interface AddProjectTarget {
+  readonly environmentId: EnvironmentId;
+  readonly onSelect: (project: ScopedProjectRef) => Promise<void>;
+}
+
 export interface CommandPaletteOpenDetail {
+  readonly addProjectTarget?: AddProjectTarget;
   readonly open?: "add-project" | "new-thread-in";
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
@@ -20,7 +30,10 @@ export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void 
   if (detail.open === "new-thread-in") {
     dispatchCommandPalette({ _tag: "OpenNewThreadIn" });
   } else if (detail.open === "add-project") {
-    dispatchCommandPalette({ _tag: "OpenAddProject" });
+    dispatchCommandPalette({
+      _tag: "OpenAddProject",
+      ...(detail.addProjectTarget ? { target: detail.addProjectTarget } : {}),
+    });
   } else if (detail.query !== undefined) {
     dispatchCommandPalette({
       _tag: "OpenSearch",

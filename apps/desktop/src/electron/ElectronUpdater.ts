@@ -1,6 +1,10 @@
+import { isHelmBuild } from "../../../../scripts/lib/helm-build.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -67,6 +71,7 @@ export class ElectronUpdater extends Context.Service<
     readonly setAllowDowngrade: (value: boolean) => Effect.Effect<void>;
     readonly setFullChangelog: (value: boolean) => Effect.Effect<void>;
     readonly setDisableDifferentialDownload: (value: boolean) => Effect.Effect<void>;
+    readonly checkForHelmUpdate: Effect.Effect<void, ElectronUpdaterCheckForUpdatesError>;
     readonly checkForUpdates: Effect.Effect<void, ElectronUpdaterCheckForUpdatesError>;
     readonly downloadUpdate: Effect.Effect<void, ElectronUpdaterDownloadUpdateError>;
     readonly quitAndInstall: (options: {
@@ -81,106 +86,148 @@ export class ElectronUpdater extends Context.Service<
 >()("@t3tools/desktop/electron/ElectronUpdater") {}
 
 /** @public */
-export const make = ElectronUpdater.of({
-  setFeedURL: Effect.fn("ElectronUpdater.setFeedURL")(function (options) {
-    return Effect.suspend(() => {
-      autoUpdater.setFeedURL(options);
-      return Effect.void;
-    });
-  }),
-  setAutoDownload: Effect.fn("ElectronUpdater.setAutoDownload")(function (value) {
-    return Effect.suspend(() => {
-      autoUpdater.autoDownload = value;
-      return Effect.void;
-    });
-  }),
-  setAutoInstallOnAppQuit: Effect.fn("ElectronUpdater.setAutoInstallOnAppQuit")(function (value) {
-    return Effect.suspend(() => {
-      autoUpdater.autoInstallOnAppQuit = value;
-      return Effect.void;
-    });
-  }),
-  setChannel: Effect.fn("ElectronUpdater.setChannel")(function (channel) {
-    return Effect.suspend(() => {
-      autoUpdater.channel = channel;
-      return Effect.void;
-    });
-  }),
-  setAllowPrerelease: Effect.fn("ElectronUpdater.setAllowPrerelease")(function (value) {
-    return Effect.suspend(() => {
-      autoUpdater.allowPrerelease = value;
-      return Effect.void;
-    });
-  }),
-  allowDowngrade: Effect.sync(() => autoUpdater.allowDowngrade),
-  setAllowDowngrade: Effect.fn("ElectronUpdater.setAllowDowngrade")(function (value) {
-    return Effect.suspend(() => {
-      autoUpdater.allowDowngrade = value;
-      return Effect.void;
-    });
-  }),
-  setFullChangelog: Effect.fn("ElectronUpdater.setFullChangelog")(function (value) {
-    return Effect.suspend(() => {
-      autoUpdater.fullChangelog = value;
-      return Effect.void;
-    });
-  }),
-  setDisableDifferentialDownload: Effect.fn("ElectronUpdater.setDisableDifferentialDownload")(
-    function (value) {
+export const make = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  return ElectronUpdater.of({
+    setFeedURL: Effect.fn("ElectronUpdater.setFeedURL")(function (options) {
       return Effect.suspend(() => {
-        autoUpdater.disableDifferentialDownload = value;
+        autoUpdater.setFeedURL(options);
         return Effect.void;
       });
-    },
-  ),
-  checkForUpdates: Effect.suspend(() => {
-    const channel = autoUpdater.channel;
-    return Effect.tryPromise({
-      try: () => autoUpdater.checkForUpdates(),
-      catch: (cause) => new ElectronUpdaterCheckForUpdatesError({ channel, cause }),
-    }).pipe(Effect.asVoid);
-  }),
-  downloadUpdate: Effect.suspend(() => {
-    const channel = autoUpdater.channel;
-    return Effect.tryPromise({
-      try: () => autoUpdater.downloadUpdate(),
-      catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
-    }).pipe(Effect.asVoid);
-  }),
-  quitAndInstall: Effect.fn("ElectronUpdater.quitAndInstall")(function ({
-    isSilent,
-    isForceRunAfter,
-  }) {
-    return Effect.suspend(() => {
-      const channel = autoUpdater.channel;
-      return Effect.try({
-        try: () => autoUpdater.quitAndInstall(isSilent, isForceRunAfter),
-        catch: (cause) =>
-          new ElectronUpdaterQuitAndInstallError({
-            channel,
-            isSilent,
-            isForceRunAfter,
-            cause,
-          }),
+    }),
+    setAutoDownload: Effect.fn("ElectronUpdater.setAutoDownload")(function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.autoDownload = value;
+        return Effect.void;
       });
-    });
-  }),
-  on: Effect.fn("ElectronUpdater.on")(function (eventName, listener) {
-    const eventTarget = autoUpdater as unknown as {
-      on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
-      removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
-    };
-    const untypedListener = listener as unknown as (...args: Array<unknown>) => void;
-    return Effect.acquireRelease(
-      Effect.sync(() => {
-        eventTarget.on(eventName, untypedListener);
-      }),
-      () =>
+    }),
+    setAutoInstallOnAppQuit: Effect.fn("ElectronUpdater.setAutoInstallOnAppQuit")(function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.autoInstallOnAppQuit = value;
+        return Effect.void;
+      });
+    }),
+    setChannel: Effect.fn("ElectronUpdater.setChannel")(function (channel) {
+      return Effect.suspend(() => {
+        autoUpdater.channel = channel;
+        return Effect.void;
+      });
+    }),
+    setAllowPrerelease: Effect.fn("ElectronUpdater.setAllowPrerelease")(function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.allowPrerelease = value;
+        return Effect.void;
+      });
+    }),
+    allowDowngrade: Effect.sync(() => autoUpdater.allowDowngrade),
+    setAllowDowngrade: Effect.fn("ElectronUpdater.setAllowDowngrade")(function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.allowDowngrade = value;
+        return Effect.void;
+      });
+    }),
+    setFullChangelog: Effect.fn("ElectronUpdater.setFullChangelog")(function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.fullChangelog = value;
+        return Effect.void;
+      });
+    }),
+    setDisableDifferentialDownload: Effect.fn("ElectronUpdater.setDisableDifferentialDownload")(
+      function (value) {
+        return Effect.suspend(() => {
+          autoUpdater.disableDifferentialDownload = value;
+          return Effect.void;
+        });
+      },
+    ),
+    checkForHelmUpdate: Effect.gen(function* () {
+      // Finder launches may omit Homebrew from PATH.
+      const gh = (yield* fs.exists("/opt/homebrew/bin/gh"))
+        ? "/opt/homebrew/bin/gh"
+        : (yield* fs.exists("/usr/local/bin/gh"))
+          ? "/usr/local/bin/gh"
+          : "gh";
+      const token = (yield* spawner
+        .string(
+          ChildProcess.make(gh, ["auth", "token", "--hostname", "github.com"], {
+            stdin: "ignore",
+            stderr: "ignore",
+          }),
+        )
+        .pipe(Effect.timeout("10 seconds"))).trim();
+      if (!token)
+        return yield* Effect.fail("Sign in to github.com with gh to download Helm updates.");
+      return yield* Effect.tryPromise({
+        try: async () => {
+          autoUpdater.setFeedURL({
+            provider: "github",
+            owner: "nealsshah",
+            repo: "helm",
+            private: true,
+            token,
+          });
+          const offer = await autoUpdater.checkForUpdates();
+          if (offer?.isUpdateAvailable && isHelmBuild(offer.updateInfo.version)) {
+            await autoUpdater.downloadUpdate(offer.cancellationToken);
+          }
+        },
+        catch: (cause) => new ElectronUpdaterCheckForUpdatesError({ channel: "latest", cause }),
+      });
+    }).pipe(
+      Effect.mapError(
+        (cause) => new ElectronUpdaterCheckForUpdatesError({ channel: "latest", cause }),
+      ),
+    ),
+    checkForUpdates: Effect.suspend(() => {
+      const channel = autoUpdater.channel;
+      return Effect.tryPromise({
+        try: () => autoUpdater.checkForUpdates(),
+        catch: (cause) => new ElectronUpdaterCheckForUpdatesError({ channel, cause }),
+      }).pipe(Effect.asVoid);
+    }),
+    downloadUpdate: Effect.suspend(() => {
+      const channel = autoUpdater.channel;
+      return Effect.tryPromise({
+        try: () => autoUpdater.downloadUpdate(),
+        catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
+      }).pipe(Effect.asVoid);
+    }),
+    quitAndInstall: Effect.fn("ElectronUpdater.quitAndInstall")(function ({
+      isSilent,
+      isForceRunAfter,
+    }) {
+      return Effect.suspend(() => {
+        const channel = autoUpdater.channel;
+        return Effect.try({
+          try: () => autoUpdater.quitAndInstall(isSilent, isForceRunAfter),
+          catch: (cause) =>
+            new ElectronUpdaterQuitAndInstallError({
+              channel,
+              isSilent,
+              isForceRunAfter,
+              cause,
+            }),
+        });
+      });
+    }),
+    on: Effect.fn("ElectronUpdater.on")(function (eventName, listener) {
+      const eventTarget = autoUpdater as unknown as {
+        on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
+        removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
+      };
+      const untypedListener = listener as unknown as (...args: Array<unknown>) => void;
+      return Effect.acquireRelease(
         Effect.sync(() => {
-          eventTarget.removeListener(eventName, untypedListener);
+          eventTarget.on(eventName, untypedListener);
         }),
-    ).pipe(Effect.asVoid);
-  }),
+        () =>
+          Effect.sync(() => {
+            eventTarget.removeListener(eventName, untypedListener);
+          }),
+      ).pipe(Effect.asVoid);
+    }),
+  });
 });
 
-export const layer = Layer.succeed(ElectronUpdater, make);
+export const layer = Layer.effect(ElectronUpdater, make);

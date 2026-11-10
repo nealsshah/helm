@@ -1,12 +1,20 @@
 # Direct work through the workspace
 
-Open **Workspace → Orchestrator** and describe the work. Use **+** above the conversation to start another orchestrator. Each tab has its own conversation and can coordinate the same environment’s board. Closing a tab ends its orchestrator role. Its conversation remains in the sidebar. Managing work items requires full access and default interaction mode.
+Open **Workspace → First Mate** to start a task. Describe the outcome you want. To start work in another registered project on the same environment, name it in your request. The Second Mate starts in that project. The First Mate creates a card and sends the brief to that task’s **Second Mate**. Use the project name in a chat header to move an idle conversation to another project. The chat keeps its history and the next turn runs in the selected project’s folder. Use **+** to open a First Mate draft. Choose its project above the composer and send your first message to start the session.
 
-Give each worker its item ID. A worker can call `t3_workspace_read` to find its assigned item and `callerThreadId`. It sends a `report` with that thread ID and the new `stage` when it starts planning, building, testing or completes the deliverable.
+Open a task card to speak directly to its Second Mate. Give it another instruction while a worker is busy, such as asking for an independent review. The Second Mate can dispatch another worker and report back in the same chat. The Second Mate keeps routine worker exchanges out of your conversation. To inspect them, open the task’s **Workers** menu and choose **Show worker activity**, or select a worker to read its own conversation. Existing tasks keep their original work history there.
 
-When a worker needs your attention, it explains why in chat and sends a report with `needsAttention: true`. Its session appears in **Needs me** above the board. Open the card and reply directly. Provider approvals use the controls inside the conversation. Once all attention on the ticket clears, it returns to its current stage.
+The card’s stage follows the task as a whole. **Planning** covers scope and design, **Building** covers implementation and fixes, **Reviewing** covers inspecting changes, and **QA** covers trying the running feature. A task can skip a stage or return to an earlier one. The Second Mate marks the task **Done** when the requested work is verified.
 
-## Mirror an existing First Mate task
+Workers bring questions to the Second Mate first. If the task already gives it enough direction, the Second Mate answers the worker. When it needs your decision, the task appears in **Needs me**. Open the card and reply to the Second Mate. It passes your answer to the worker. Provider permission approvals still open in the session requesting permission.
+
+When the Second Mate finishes answering your message, the task appears in **Needs me** with **Reply ready**. Open the card to read the answer and clear the notification. A decision still waiting on you stays in **Needs me** until you answer it.
+
+Retire a task to remove its card from the board and settle its Second Mate and workers. Click the checkmark on a Done card. For an unfinished task, right-click or double-click the card, choose **Retire task**, and confirm. **Retired tasks** lets you restore a card to its previous stage.
+
+## Mirror a task from the external First Mate tool
+
+Helm’s First Mate chat runs inside Helm. The optional bridge below is for tasks already managed by a separate installation of First Mate.
 
 For a task using First Mate's T3 backend, first associate the thread recorded in its task metadata with a work item on the same Helm environment. Run the following from the Helm checkout, replacing the paths and identifiers with yours.
 

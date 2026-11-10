@@ -127,6 +127,7 @@ export interface VisitThreadInput extends ThreadCommandInput {
 export type MarkThreadUnreadInput = ThreadCommandInput;
 
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
+  readonly projectId?: ProjectId;
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecoveryUpdate | null;
   readonly title?: string;
   readonly modelSelection?: ModelSelection;
@@ -167,6 +168,7 @@ interface StartThreadBootstrap {
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
+  readonly workspaceRole?: "firstMate";
   readonly manualContinuationOfRunId?: RunId;
   readonly message: {
     readonly messageId: MessageId;
@@ -611,6 +613,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
     const commandId = yield* allocateCommandId(input);
     let result = null;
     if (
+      input.projectId !== undefined ||
       input.title !== undefined ||
       input.branch !== undefined ||
       input.worktreePath !== undefined ||
@@ -623,6 +626,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.limitRecovery === undefined ? {} : { limitRecovery: input.limitRecovery }),
         commandId,
         threadId: input.threadId,
+        ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.branch === undefined ? {} : { branch: input.branch }),
         ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
@@ -710,6 +714,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
                 : { branch: bootstrap.branch }),
             };
     return yield* request(ORCHESTRATION_V2_WS_METHODS.launchThread, {
+      ...(input.workspaceRole ? { workspaceRole: input.workspaceRole } : {}),
       commandId,
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,

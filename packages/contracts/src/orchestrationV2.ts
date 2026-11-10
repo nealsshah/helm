@@ -1072,6 +1072,7 @@ export const OrchestrationV2ProviderGoal = Schema.Struct({
 export type OrchestrationV2ProviderGoal = typeof OrchestrationV2ProviderGoal.Type;
 
 export const OrchestrationV2ProviderThread = Schema.Struct({
+  nativeProjectId: Schema.optional(ProjectId),
   id: ProviderThreadId,
   driver: ProviderDriverKind,
   providerInstanceId: ProviderInstanceId,
@@ -3044,6 +3045,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.metadata.update"),
+    projectId: Schema.optional(ProjectId),
     commandId: CommandId,
     threadId: ThreadId,
     title: Schema.optional(TrimmedNonEmptyString),
@@ -3631,6 +3633,7 @@ export const OrchestrationV2ArchivedShellSnapshot = Schema.Struct({
 export type OrchestrationV2ArchivedShellSnapshot = typeof OrchestrationV2ArchivedShellSnapshot.Type;
 
 export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
+  workspaceRole: Schema.optional(Schema.Literal("firstMate")),
   commandId: CommandId,
   creationSource: Schema.optional(OrchestrationV2CreationSource),
   threadId: Schema.optional(ThreadId),

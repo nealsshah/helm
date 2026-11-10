@@ -23,6 +23,30 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 
 describe("DesktopUpdates", () => {
+  it.effect("stages private Helm updates until normal quit and rejects upstream releases", () => {
+    const harness = makeHarness({ appVersion: "0.1.8-helm.2", savedChannel: "nightly" });
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        assert.equal((yield* updates.getState).channel, "latest");
+        yield* updates.check("manual");
+        assert.equal(harness.helmChecks(), 1);
+        assert.equal(harness.checkCount(), 0);
+        assert.deepEqual(harness.feedUrls(), []);
+        assert.isTrue(harness.installOnQuit());
+        harness.emit("update-available", { version: "9.0.0" });
+        yield* flushCallbacks;
+        assert.equal((yield* updates.getState).status, "up-to-date");
+        harness.emit("update-downloaded", { version: "0.1.8-helm.3" });
+        yield* flushCallbacks;
+        assert.equal((yield* updates.getState).downloadedVersion, "0.1.8-helm.3");
+        assert.equal(harness.quitAndInstalls(), 0);
+        assert.deepEqual(harness.installSteps, []);
+      }),
+    ).pipe(Effect.provide(harness.layer));
+  });
+
   it.effect("updates Linux .deb installs and leaves other non-AppImage installs off", () =>
     Effect.gen(function* () {
       const linuxState = (packageType: string | undefined) =>

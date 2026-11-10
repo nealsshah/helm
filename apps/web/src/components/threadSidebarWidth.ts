@@ -1,4 +1,5 @@
 export const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
+export const THREAD_SIDEBAR_ICON_WIDTH = 56;
 const THREAD_SIDEBAR_DEFAULT_WIDTH = 16 * 16;
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 export const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
@@ -26,6 +27,7 @@ export function resolveInitialThreadSidebarWidth(
   storedWidth: number | null,
   viewportWidth: number,
 ): number {
+  if (storedWidth === THREAD_SIDEBAR_ICON_WIDTH) return storedWidth;
   const preferredWidth =
     storedWidth === null
       ? THREAD_SIDEBAR_DEFAULT_WIDTH

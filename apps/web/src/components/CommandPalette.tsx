@@ -47,6 +47,7 @@ import {
   AuthFilesystemReadScope,
   type DesktopWslState,
   type EnvironmentId,
+  type ScopedProjectRef,
   type FilesystemBrowseResult,
   SourceControlProviderKind,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
@@ -521,7 +522,12 @@ function OpenCommandPaletteDialog(props: {
   const [isCreatingNewProject, setIsCreatingNewProject] = useState(false);
   // State lags a render behind, so a repeated Enter could start a second create.
   const newProjectSubmittingRef = useRef(false);
-  const createNewProject = useNewProject();
+  const addTarget = props.openIntent?.kind === "add-project" ? props.openIntent.target : undefined;
+  const openAddedProject = async (project: ScopedProjectRef) => {
+    if (addTarget) await addTarget.onSelect(project);
+    else await handleNewThread(project);
+  };
+  const createNewProject = useNewProject(openAddedProject);
   const cloneLookupGeneration = useRef(0);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
   const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
@@ -605,7 +611,8 @@ function OpenCommandPaletteDialog(props: {
         ? desktopLocalBackendId(environment.entry.target)?.startsWith("wsl:") === true
         : false;
     }) ?? null;
-  const browseEnvironmentId = addProjectEnvironmentId ?? defaultAddProjectEnvironmentId;
+  const browseEnvironmentId =
+    addProjectEnvironmentId ?? addTarget?.environmentId ?? defaultAddProjectEnvironmentId;
   const canCreateProject = useEnvironmentScope(browseEnvironmentId, AuthOrchestrationOperateScope);
   const browseEnvironment =
     environments.find((environment) => environment.environmentId === browseEnvironmentId) ?? null;
@@ -1166,10 +1173,14 @@ function OpenCommandPaletteDialog(props: {
     setOpen(false);
     void navigate({ to: "/settings/connections" });
   };
-  const addProjectEntry = resolveAddProjectEntry(
-    addProjectEnvironmentOptions,
-    defaultAddProjectEnvironmentId,
-  );
+  const addProjectEntry = addTarget
+    ? resolveAddProjectEntry(
+        addProjectEnvironmentOptions.filter(
+          (option) => option.environmentId === addTarget.environmentId,
+        ),
+        addTarget.environmentId,
+      )
+    : resolveAddProjectEntry(addProjectEnvironmentOptions, defaultAddProjectEnvironmentId);
 
   const openAddProjectFlow = () => {
     switch (addProjectEntry.kind) {
@@ -1824,7 +1835,7 @@ function OpenCommandPaletteDialog(props: {
         existing.id,
         clientSettings.sidebarThreadSortOrder,
       );
-      if (latestThread && latestThread.settledOverride !== "settled") {
+      if (!addTarget && latestThread && latestThread.settledOverride !== "settled") {
         await navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(
@@ -1833,7 +1844,7 @@ function OpenCommandPaletteDialog(props: {
         });
       } else {
         const navigationResult = await settlePromise(() =>
-          handleNewThread(scopeProjectRef(existing.environmentId, existing.id)),
+          openAddedProject(scopeProjectRef(existing.environmentId, existing.id)),
         );
         if (navigationResult._tag === "Failure") {
           const error = squashAtomCommandFailure(navigationResult);
@@ -1887,7 +1898,7 @@ function OpenCommandPaletteDialog(props: {
     }
 
     const navigationResult = await settlePromise(() =>
-      handleNewThread(scopeProjectRef(input.environmentId, projectId)),
+      openAddedProject(scopeProjectRef(input.environmentId, projectId)),
     );
     if (navigationResult._tag === "Failure") {
       const error = squashAtomCommandFailure(navigationResult);
@@ -2142,7 +2153,7 @@ function OpenCommandPaletteDialog(props: {
     );
     const projectRef = scopeProjectRef(addProjectCloneFlow.environmentId, projectId);
     await waitForProject(projectRef, 3_000).catch(() => null);
-    const navigationResult = await settlePromise(() => handleNewThread(projectRef));
+    const navigationResult = await settlePromise(() => openAddedProject(projectRef));
     if (navigationResult._tag === "Failure") {
       const error = squashAtomCommandFailure(navigationResult);
       toastManager.add(

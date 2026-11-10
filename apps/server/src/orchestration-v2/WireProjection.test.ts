@@ -174,6 +174,27 @@ describe("orchestration V2 wire projection", () => {
     });
   });
 
+  it("keeps the publication decision when a long workspace checkpoint is compacted", () => {
+    const input = {
+      stage: "reviewing",
+      needsAttention: false,
+      publishReply: true,
+      summary: "x".repeat(100_000),
+    };
+    const projected = projectTurnItemForWire({
+      ...base,
+      toolName: "t3-code.t3_workspace_checkpoint",
+      input,
+    });
+    expect(projected.type === "dynamic_tool" && projected.input).toMatchObject({
+      stage: "reviewing",
+      needsAttention: false,
+      publishReply: true,
+      truncated: true,
+    });
+    expect(JSON.stringify(projected).length).toBeLessThan(16_384);
+  });
+
   it("truncates detail at a UTF-8 boundary without changing the source", () => {
     const marker = "\n… output truncated for transport";
     const prefixBytes = 32_768 - Buffer.byteLength(marker);

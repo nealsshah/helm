@@ -47,6 +47,7 @@ import {
 } from "@t3tools/contracts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
+import { WORKSPACE_ROLE_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
@@ -289,6 +290,7 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    workspaceRole: Schema.optional(Schema.Literals(["firstMate", "secondMate", "worker"])),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({
@@ -1014,8 +1016,15 @@ export const buildMessages = (sample: Sample) => {
     testCase.promptContext === undefined
       ? testCase.prompt
       : projectComposerContextForProvider({ text: testCase.prompt, ...testCase.promptContext });
-  const prompt =
-    sideChatContext === undefined ? userText : withInlineContext(sideChatContext, userText);
+  const contextText = [
+    sideChatContext,
+    testCase.setup.workspaceRole
+      ? WORKSPACE_ROLE_INSTRUCTIONS[testCase.setup.workspaceRole]
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const prompt = withInlineContext(contextText, userText);
   const childPrompt = () => taskPrompt({ task: prompt, role: delegateRole });
   if (testCase.prompt !== "")
     push("user", text(role === "delegated-child" ? childPrompt() : prompt));

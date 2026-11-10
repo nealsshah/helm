@@ -12,6 +12,7 @@ export const stages = WorkspaceStage.literals;
 export const stageLabel: Record<WorkItem["stage"], string> = {
   planning: "Planning",
   building: "Building",
+  reviewing: "Reviewing",
   qa: "QA",
   complete: "Done",
 };
@@ -22,6 +23,7 @@ export interface BoardItem {
 }
 
 export interface QueueEntry {
+  replyId?: string | undefined;
   key: string;
   environmentId: EnvironmentId;
   itemId: string | null;
@@ -33,6 +35,7 @@ export interface QueueEntry {
 
 export function itemHasThread(item: WorkItem, threadId: ThreadId) {
   return (
+    item.secondMateThreadId === threadId ||
     item.primaryThreadId === threadId ||
     item.sessions.some((session) => session.threadId === threadId)
   );
@@ -47,18 +50,24 @@ export function outstandingDependencies(item: WorkItem, siblings: ReadonlyArray<
   });
 }
 
-export function runtimeLabel(shell: EnvironmentThreadShell | undefined, connected: boolean) {
+export function runtimeLabel(
+  shell: EnvironmentThreadShell | undefined,
+  connected: boolean,
+  triaged = false,
+) {
   if (!connected) return "Disconnected";
   if (!shell) return "Unavailable";
   if (shell.archivedAt || shell.deletedAt) return "Archived";
-  if (shell.hasPendingApprovals || shell.hasPendingUserInput) return "Awaiting input";
+  if (shell.hasPendingApprovals) return "Awaiting input";
+  if (shell.hasPendingUserInput) return triaged ? "Awaiting Second Mate" : "Awaiting input";
   if (shell.runtime?.status === "failed") return "Error";
   if (shell.runtime?.status === "queued") return "Queued";
   if (shell.runtime?.status === "waiting") return "Waiting";
   return threadRuntimeIsActive(shell.runtime) ? "Running" : "Idle";
 }
 
-export function shellNeedsAttention(shell: EnvironmentThreadShell) {
+export function shellNeedsAttention(shell: EnvironmentThreadShell, triaged: boolean) {
+  if (triaged) return shell.hasPendingApprovals;
   return (
     shell.hasPendingUserInput ||
     shell.hasPendingApprovals ||
@@ -71,6 +80,7 @@ export function nativeQueueEntries(
   shell: EnvironmentThreadShell,
   pending: PendingThreadRequests | null,
   itemId: string | null,
+  triaged = false,
 ): QueueEntry[] {
   const result: QueueEntry[] = [];
   function add(id: string, kind: string, prompt: string, createdAt: string) {
@@ -92,6 +102,10 @@ export function nativeQueueEntries(
       approval.createdAt,
     );
   }
+  if (shell.hasPendingApprovals && !pending?.approvals.length) {
+    add("pending", "Approval", "Approval needed", shell.updatedAt);
+  }
+  if (triaged) return result;
   for (const input of pending?.userInputs ?? []) {
     add(
       input.requestId,
@@ -99,9 +113,6 @@ export function nativeQueueEntries(
       input.questions.map((question) => question.question).join(" • "),
       input.createdAt,
     );
-  }
-  if (shell.hasPendingApprovals && !pending?.approvals.length) {
-    add("pending", "Approval", "Approval needed", shell.updatedAt);
   }
   if (shell.hasPendingUserInput && !pending?.userInputs.length) {
     add("pending", "Input", "Waiting for your input", shell.updatedAt);

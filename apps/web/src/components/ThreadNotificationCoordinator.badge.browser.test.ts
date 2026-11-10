@@ -57,6 +57,10 @@ vi.mock(import("../state/threads"), async (original) => {
     },
   };
 });
+vi.mock(import("./workspace/workspaceHost"), async (original) => ({
+  ...(await original()),
+  workspaceTriageRoles: (() => rolesAtom) as never,
+}));
 vi.mock(import("../hooks/useSettings"), async (original) => ({
   ...(await original()),
   subscribeClientSettings: ((listener: () => void) => {
@@ -80,6 +84,7 @@ import { startThreadNotifications } from "./ThreadNotificationCoordinator";
 let registry: AtomRegistry.AtomRegistry;
 const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
 const environmentIdsAtom = Atom.make<ReadonlyArray<string>>([]);
+const rolesAtom = Atom.make(new Map<string, "worker" | "lead">());
 const noRequestsAtom = Atom.make(new Map());
 const noDelegatedAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
 state.shells = { set: (id, value) => registry.set(shellAtom(id), value) };
@@ -239,6 +244,30 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     expect(notification.close).toHaveBeenCalled();
   },
 );
+
+it("silences worker questions while notifying for permission approvals and the lead's own question", async () => {
+  await using app = setup();
+  registry.set(
+    rolesAtom,
+    new Map([
+      ["worker", "worker"],
+      ["lead", "lead"],
+    ]),
+  );
+  state.shells.set("one", shell({ id: "worker" }, { id: "lead" }));
+  app.start();
+  registry.set(noRequestsAtom, new Map([["lead", "user_input"]]));
+  state.shells.set("one", shell({ id: "worker", hasPendingUserInput: true }, { id: "lead" }));
+  expect(TestNotification.sent).toHaveLength(0);
+  state.shells.set(
+    "one",
+    shell({ id: "worker", hasPendingApprovals: true }, { id: "lead", hasPendingUserInput: true }),
+  );
+  expect(TestNotification.sent.map(({ title }) => title)).toEqual([
+    "Approval needed",
+    "Input needed",
+  ]);
+});
 
 it("presents completion notifications and sound as soon as the shell completes", async () => {
   await using app = setup();

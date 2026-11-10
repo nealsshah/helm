@@ -1,7 +1,12 @@
 import { RuntimeRequestId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { makeThreadFixture } from "../../test-fixtures";
-import { nativeQueueEntries, runtimeLabel, safeArtifactUrl } from "./workspaceModel";
+import {
+  nativeQueueEntries,
+  runtimeLabel,
+  safeArtifactUrl,
+  shellNeedsAttention,
+} from "./workspaceModel";
 
 describe("workspace runtime", () => {
   const shell = makeThreadFixture({ hasPendingApprovals: true, hasPendingUserInput: true });
@@ -46,6 +51,34 @@ describe("workspace runtime", () => {
       [shell.id, "qa", "Which repository?"],
     ]);
     expect(new Set(requests.map((r) => r.key)).size).toBe(2);
+    const worker = {
+      ...shell,
+      hasPendingApprovals: false,
+      hasActionableProposedPlan: true,
+      runtime: {
+        status: "failed",
+        activeRunId: null,
+        providerInstanceId: shell.providerInstanceId,
+        providerName: null,
+        lastErrorClass: "usage_limit",
+        lastError: "Provider rate limit reached",
+        updatedAt: now,
+      },
+    } as const;
+    expect(shellNeedsAttention(worker, true)).toBe(false);
+    expect(nativeQueueEntries(worker, null, "qa", true)).toEqual([]);
+    expect(nativeQueueEntries(worker, null, null)).toContainEqual(
+      expect.objectContaining({
+        threadId: worker.id,
+        kind: "Error",
+        prompt: worker.runtime.lastError,
+      }),
+    );
+    expect(runtimeLabel(worker, true, true)).toBe("Awaiting Second Mate");
+    expect(shellNeedsAttention(shell, true)).toBe(true);
+    expect(nativeQueueEntries(shell, null, "qa", true).map((entry) => entry.kind)).toEqual([
+      "Approval",
+    ]);
     expect(runtimeLabel(shell, false)).toBe("Disconnected");
     expect(runtimeLabel(shell, true)).toBe("Awaiting input");
   });

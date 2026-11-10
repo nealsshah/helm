@@ -17,13 +17,16 @@ import {
   TurnItemId,
   WS_METHODS,
   WsRpcGroup,
+  type WorkspaceCommand,
   type WorkspaceSnapshot,
+  type OrchestrationV2Command,
   type VcsStatusStreamEvent,
   type OrchestrationProjectShell,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2Run,
   type OrchestrationV2ShellStreamItem,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadLaunchInput,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadStreamItem,
   type OrchestrationV2TurnItem,
@@ -59,7 +62,15 @@ const descriptor = {
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, visualWorkspace: true },
+  capabilities: {
+    repositoryIdentity: true,
+    visualWorkspace: true,
+    workspaceSecondMate: true,
+    firstMateDraftLaunch: true,
+    workspaceWorkerTriage: true,
+    workspaceRetirement: true,
+    threadProjectSwitch: true,
+  },
 };
 const auth = {
   policy: "loopback-browser",
@@ -187,6 +198,7 @@ export interface FakeThread {
   /** Makes this a side chat of that thread. */
   readonly sideChatOf?: ThreadId;
   readonly archived?: boolean;
+  readonly projectId?: ProjectId;
   readonly runtimeRequests?: OrchestrationV2ThreadProjection["runtimeRequests"];
   readonly id: ThreadId;
   readonly title: string;
@@ -219,9 +231,10 @@ export function threadWithHistory(name: string, turns: number): FakeThread {
 
 function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   const latest = thread.runs.at(-1);
+  const pending = thread.runtimeRequests?.find((request) => request.status === "pending");
   return {
     id: thread.id,
-    projectId: PROJECT_ID,
+    projectId: thread.projectId ?? PROJECT_ID,
     title: thread.title,
     providerInstanceId: CODEX,
     modelSelection: MODEL,
@@ -243,7 +256,9 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
     activeRunId: null,
     // Idle reads as waiting on the user, which shows a per-second duration in the sidebar.
     status: latest ? "completed" : "idle",
-    pendingRuntimeRequest: null,
+    pendingRuntimeRequest: pending
+      ? { id: pending.id, kind: pending.kind, createdAt: pending.createdAt }
+      : null,
     latestVisibleMessage: null,
     latestUserMessageAt: AT,
     hasActionableProposedPlan: false,
@@ -339,9 +354,89 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
 
 const emptyWorkspace: WorkspaceSnapshot = { orchestratorThreadIds: [], items: [], requests: [] };
 let workspace = emptyWorkspace;
+let projects: ReadonlyArray<OrchestrationProjectShell> = [project];
+let workspaceSubscriber: Queue.Queue<WorkspaceSnapshot> | null = null;
+let shellSubscriber: Queue.Queue<OrchestrationV2ShellStreamItem> | null = null;
 
 const handlers: Record<string, (input: never) => unknown> = {
-  [WS_METHODS.workspaceSubscribe]: () => subscribe([workspace]),
+  [WS_METHODS.workspaceSubscribe]: () =>
+    subscribe([workspace], (queue) => {
+      workspaceSubscriber = queue;
+      return () => {
+        if (workspaceSubscriber === queue) workspaceSubscriber = null;
+      };
+    }),
+  [WS_METHODS.workspaceCommand]: ({ command }: { command: WorkspaceCommand }) =>
+    Effect.gen(function* () {
+      if (command.type !== "orchestrator") return yield* Effect.never;
+      workspace = {
+        ...workspace,
+        orchestratorThreadIds: [...workspace.orchestratorThreadIds, command.threadId],
+      };
+      if (workspaceSubscriber) yield* Queue.offer(workspaceSubscriber, workspace);
+      return workspace;
+    }),
+  [ORCHESTRATION_V2_WS_METHODS.launchThread]: (input: OrchestrationV2ThreadLaunchInput) =>
+    Effect.gen(function* () {
+      if (!input.threadId || !input.initialMessage?.messageId) return yield* Effect.never;
+      const id = input.threadId;
+      const prompt = input.initialMessage;
+      const messageId = input.initialMessage.messageId;
+      const runId = RunId.make(`${id}-initial-run`);
+      const thread: FakeThread = {
+        id,
+        title: input.title,
+        projectId: input.projectId,
+        items: [userItem(id, runId, messageId, 0, prompt.text)],
+        runs: [run(id, runId, 1, messageId)],
+      };
+      threads = [...threads, thread];
+      sequence++;
+      if (shellSubscriber)
+        yield* Queue.offer(shellSubscriber, {
+          kind: "thread.updated",
+          sequence,
+          location: "active",
+          thread: shellOf(thread),
+        });
+      if (input.workspaceRole === "firstMate") {
+        workspace = {
+          ...workspace,
+          orchestratorThreadIds: [...workspace.orchestratorThreadIds, id],
+        };
+        if (workspaceSubscriber) yield* Queue.offer(workspaceSubscriber, workspace);
+      }
+      return { threadId: id, projection: projectionOf(thread), resumed: false, sequence };
+    }),
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
+    Effect.gen(function* () {
+      if (command.type === "thread.visit") return { sequence };
+      let changed: FakeThread;
+      if (command.type === "thread.create") {
+        changed = {
+          id: command.threadId,
+          title: command.title,
+          projectId: command.projectId,
+          runs: [],
+          items: [],
+        };
+        threads = [...threads, changed];
+      } else if (command.type === "thread.metadata.update" && command.projectId) {
+        const current = threads.find((entry) => entry.id === command.threadId);
+        if (!current) return yield* Effect.die("Unknown fixture thread");
+        changed = { ...current, projectId: command.projectId };
+        threads = threads.map((entry) => (entry.id === changed.id ? changed : entry));
+      } else return yield* Effect.never;
+      sequence++;
+      if (shellSubscriber)
+        yield* Queue.offer(shellSubscriber, {
+          kind: "thread.updated",
+          sequence,
+          location: "active",
+          thread: shellOf(changed),
+        });
+      return { sequence };
+    }),
   [WS_METHODS.subscribeTerminalMetadata]: () =>
     subscribe<TerminalMetadataStreamEvent>([{ type: "snapshot", terminals: [] }], (queue) => {
       terminalMetadataSubscriber = queue;
@@ -350,19 +445,27 @@ const handlers: Record<string, (input: never) => unknown> = {
       };
     }),
   [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: () =>
-    subscribe<OrchestrationV2ShellStreamItem>([
-      {
-        kind: "snapshot",
-        snapshot: {
-          schemaVersion: 1,
-          snapshotSequence: sequence,
-          projects: [project],
-          threads: threads.filter((thread) => !thread.archived).map(shellOf),
-          archivedThreads: [],
+    subscribe<OrchestrationV2ShellStreamItem>(
+      [
+        {
+          kind: "snapshot",
+          snapshot: {
+            schemaVersion: 1,
+            snapshotSequence: sequence,
+            projects,
+            threads: threads.filter((thread) => !thread.archived).map(shellOf),
+            archivedThreads: [],
+          },
         },
+        { kind: "synchronized" },
+      ],
+      (queue) => {
+        shellSubscriber = queue;
+        return () => {
+          if (shellSubscriber === queue) shellSubscriber = null;
+        };
       },
-      { kind: "synchronized" },
-    ]),
+    ),
   [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: { readonly threadId: ThreadId }) => {
     const thread = threads.find((candidate) => candidate.id === input.threadId);
     if (!thread) return Stream.never;
@@ -443,8 +546,12 @@ const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
 export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
   workspaceSnapshot: WorkspaceSnapshot = emptyWorkspace,
-): Disposable {
+  additionalProjects: ReadonlyArray<
+    Pick<OrchestrationProjectShell, "id" | "title" | "workspaceRoot">
+  > = [],
+) {
   workspace = workspaceSnapshot;
+  projects = [project, ...additionalProjects.map((entry) => ({ ...project, ...entry }))];
   threads = fixtures;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
@@ -464,10 +571,14 @@ export function installFakeEnvironment(
     return realFetch(input, init);
   };
   return {
+    get threadCount() {
+      return threads.length;
+    },
     [Symbol.dispose]: () => {
       globalThis.fetch = realFetch;
       threads = [];
       workspace = emptyWorkspace;
+      projects = [project];
     },
   };
 }

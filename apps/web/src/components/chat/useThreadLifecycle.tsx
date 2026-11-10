@@ -103,6 +103,7 @@ interface ThreadLifecycleInput {
   readonly serverConfig: EnvironmentServerConfig | null;
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
+  readonly hideWorkerActivity?: boolean;
   readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkNowItem>[0]["tasks"];
   readonly turnItems: Parameters<typeof backgroundWorkNowItem>[0]["turnItems"];
   readonly activePendingApproval: PendingThreadRequests["activePendingApproval"];
@@ -154,6 +155,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     serverConfig,
     runtimeMode,
     isWorking,
+    hideWorkerActivity,
     pendingBackgroundTasks,
     turnItems,
     activePendingApproval,
@@ -496,7 +498,11 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const onOpenRelatedThreadStable = useStableCallback(onOpenRelatedThread);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
   const childInputNow = childInputNowItem({
-    childThreadInputs,
+    childThreadInputs: hideWorkerActivity
+      ? childThreadInputs.filter(
+          (child) => child.hasPendingApprovals || child.lineage.sideChat === true,
+        )
+      : childThreadInputs,
     parentAwaitingUser: Boolean(
       activePendingApproval || activePendingUserInput || activeThreadShell?.hasPendingUserInput,
     ),
@@ -594,7 +600,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const backgroundWorkNow = activeThread
     ? backgroundWorkNowItem({
         threadId: activeThread.id,
-        tasks: activeBackgroundTasks,
+        tasks: hideWorkerActivity
+          ? activeBackgroundTasks.filter((task) => task.kind !== "subagent")
+          : activeBackgroundTasks,
         turnItems,
         stopDisabled: !canOperateThread || isStoppingBackgroundWork,
         stopping: isStoppingBackgroundWork,

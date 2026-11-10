@@ -1,13 +1,16 @@
-import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
-import { useProjects } from "../state/entities";
+import { useProjects, useQuietThreadShells } from "../state/entities";
 import type { Project } from "../types";
+import { makeThreadFixture } from "../test-fixtures";
+import { AppSidebarLayout } from "./AppSidebarLayout";
+import { THREAD_SIDEBAR_WIDTH_STORAGE_KEY } from "./threadSidebarWidth";
 import Sidebar from "./Sidebar";
 import { SidebarProvider } from "./ui/sidebar";
 
@@ -18,6 +21,7 @@ vi.mock("../commandPaletteBus", () => ({
   isCommandPaletteOpen: () => false,
 }));
 vi.mock("./sidebar/SidebarChrome", () => ({
+  SidebarBrandWidthProbe: () => null,
   SidebarChromeHeader: () => null,
   SidebarChromeFooter: () => null,
 }));
@@ -86,4 +90,70 @@ describe("sidebar header new thread", () => {
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
   });
+});
+
+it("remembers an icon rail after dragging and keeps its sessions individually navigable", async () => {
+  const previousViewport = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1280, 800);
+  await using _viewport = {
+    [Symbol.asyncDispose]: () => page.viewport(previousViewport.width, previousViewport.height),
+  };
+  const key = THREAD_SIDEBAR_WIDTH_STORAGE_KEY;
+  const saved = localStorage.getItem(key);
+  using _restore = {
+    [Symbol.dispose]: () =>
+      saved === null ? localStorage.removeItem(key) : localStorage.setItem(key, saved),
+  };
+  localStorage.removeItem(key);
+  const scope = project("active");
+  vi.mocked(useProjects).mockReturnValue([scope]);
+  vi.mocked(useHandleNewThread).mockReturnValue({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProjectRef: { environmentId: scope.environmentId, projectId: scope.id },
+    handleNewThread: vi.fn(),
+    routeDraftId: null,
+    routeThreadRef: null,
+  });
+  const thread = makeThreadFixture({
+    id: ThreadId.make("review"),
+    title: "Review checkout",
+    projectId: scope.id,
+    environmentId: scope.environmentId,
+  });
+  vi.mocked(useQuietThreadShells).mockReturnValue([thread]);
+  using _threads = { [Symbol.dispose]: () => vi.mocked(useQuietThreadShells).mockRestore() };
+  const layout = () => (
+    <AppSidebarLayout>
+      <main />
+    </AppSidebarLayout>
+  );
+  await using screen = await render(layout());
+  const divider = screen.getByRole("separator", { name: "Resize Sidebar" });
+  const handle = divider.element();
+  const pointer = { bubbles: true, cancelable: true, pointerId: 1, button: 0 };
+  const bounds = handle.closest("[data-slot=sidebar-container]")!.getBoundingClientRect();
+  handle.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, clientX: bounds.right }));
+  handle.dispatchEvent(new PointerEvent("pointerup", { ...pointer, clientX: bounds.left }));
+  await expect.element(divider).toHaveAttribute("aria-valuetext", "Icons only");
+  await screen.unmount();
+  await using restored = await render(layout());
+  const restoredDivider = restored.getByRole("separator", { name: "Resize Sidebar" });
+  await expect.element(restoredDivider).toHaveAttribute("aria-valuetext", "Icons only");
+  const icon = restored.getByRole("button", { name: "Review checkout", exact: true });
+  await expect.element(icon).toBeVisible();
+  await expect.element(icon).not.toHaveTextContent("Review checkout");
+  const toggle = restored.getByRole("button", { name: "Toggle main sidebar" });
+  await toggle.click();
+  await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(icon.element().closest("[inert]")).toBeTruthy();
+  await toggle.click();
+  await expect.element(icon).toBeVisible();
+  const element = restoredDivider.element() as HTMLElement;
+  element.focus();
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(restored.getByRole("combobox", { name: "Search threads" })).toBeVisible();
+  await userEvent.keyboard("{Home}");
+  await icon.click();
+  await vi.waitFor(() => expect(restored.router?.state.location.pathname).toBe("/local/review"));
 });

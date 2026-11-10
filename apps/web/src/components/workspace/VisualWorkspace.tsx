@@ -1,5 +1,7 @@
-import { useRef, useState } from "react";
-import type { ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { useProject } from "../../state/entities";
+import { ProjectFavicon } from "../ProjectFavicon";
+import { useState } from "react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   CircleDashedIcon,
@@ -9,18 +11,32 @@ import {
   Columns3Icon,
   InboxIcon,
   MessageSquareIcon,
-  PlusIcon,
-  XIcon,
+  ArrowUpRightIcon,
 } from "lucide-react";
+import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
+import {
+  AlertDialog,
+  AlertDialogPopup,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogClose,
+} from "../ui/alert-dialog";
+import { useReadWorkspaceReply } from "./ReadWorkspaceReply";
+import { RetiredTasksMenu } from "./RetiredTasksMenu";
+import { TaskCardButton } from "./TaskCardButton";
+import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
+import { SidebarInset } from "../ui/sidebar";
 import { OrchestratorPanel } from "./OrchestratorPanel";
 import { WorkspaceSidePane } from "./WorkspaceSidePane";
 import { WorkPanel } from "./WorkPanel";
 import { PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
 import * as Schema from "effect/Schema";
-import { field, ItemCreate } from "./WorkspaceForms";
+import { field, useDelivery } from "./WorkspaceForms";
 import {
   itemHasThread,
   outstandingDependencies,
@@ -31,31 +47,71 @@ import {
   type BoardItem,
   type QueueEntry,
 } from "./workspaceModel";
-import { useWorkspaceState } from "./workspaceState";
+import { useWorkspaceCommand, useWorkspaceState } from "./workspaceState";
 
 const stageIcons = {
   planning: CircleDashedIcon,
   building: CircleDotIcon,
+  reviewing: PullRequestGlyph.pullRequest,
   qa: ScanEyeIcon,
   complete: CircleCheckIcon,
 };
+
+function CardTitle({
+  title,
+  session,
+  compact = false,
+}: {
+  title: string;
+  session: EnvironmentThreadShell | undefined;
+  compact?: boolean;
+}) {
+  const project = useProject(
+    session ? scopeProjectRef(session.environmentId, session.projectId) : null,
+  );
+  return (
+    <span className="flex min-w-0 items-start gap-1.5 text-sm font-medium leading-snug">
+      {project && !project.isScratch && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span role="img" aria-label={project.title} className="mt-0.5 inline-flex shrink-0" />
+            }
+          >
+            <ProjectFavicon project={project} className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup>{project.title}</TooltipPopup>
+        </Tooltip>
+      )}
+      <span className={cn("min-w-0 break-words", compact && "line-clamp-2")}>{title}</span>
+    </span>
+  );
+}
 
 function WorkCard({
   entry,
   sessions,
   dependencies,
+  workerTriage,
   connected,
   host,
   selected,
   onClick,
+  onRetire,
+  retirement,
+  panelOpen,
 }: {
   entry: BoardItem;
   sessions: EnvironmentThreadShell[];
   dependencies: ReturnType<typeof outstandingDependencies>;
+  workerTriage: boolean;
   connected: boolean;
   host: string | undefined;
   selected: boolean;
   onClick: () => void;
+  onRetire: (entry: BoardItem) => void;
+  retirement: boolean;
+  panelOpen: boolean;
 }) {
   const { item } = entry;
   const primary = sessions.find((s) => s.id === item.primaryThreadId);
@@ -65,27 +121,39 @@ function WorkCard({
     sessions.find(
       (s) =>
         s.runtime?.status === "running" ||
-        s.runtime?.status === "queued" ||
         s.runtime?.status === "preparing" ||
         s.runtime?.status === "starting",
     ) ??
+    sessions.find((s) => s.runtime?.status === "queued" || s.runtime?.status === "waiting") ??
     primary;
-  const runtime = runtimeLabel(source, connected);
+  const runtime = runtimeLabel(
+    source,
+    connected,
+    workerTriage && source?.id !== item.secondMateThreadId,
+  );
+  const working = runtime === "Running";
   const time = source?.runtime?.updatedAt ?? source?.updatedAt;
   const summary = item.latestReport?.text ?? item.scope;
   return (
-    <button
-      type="button"
+    <TaskCardButton
+      entry={entry}
+      environmentId={entry.environmentId}
+      retirement={retirement}
+      panelOpen={panelOpen}
+      onRetire={onRetire}
       aria-pressed={selected}
-      onClick={onClick}
+      onOpen={onClick}
       className={cn(
-        "grid w-full min-w-0 cursor-pointer gap-1.5 rounded-lg border px-3 py-2.5 text-left shadow-xs transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "grid w-full min-w-0 cursor-pointer gap-1.5 rounded-xl border px-3 py-2.5 text-left motion-safe:transition-[border-color,background-color,box-shadow] motion-safe:duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         selected
-          ? "border-primary/55 bg-accent/60"
-          : "border-border/65 bg-card hover:border-foreground/30 dark:bg-foreground/5 dark:hover:bg-foreground/8",
+          ? "border-foreground/25 bg-foreground/5 ring-1 ring-inset ring-foreground/8"
+          : "border-border/50 bg-card hover:border-foreground/20 hover:shadow-xs",
       )}
     >
-      <span className="break-words text-sm font-medium leading-snug">{item.title}</span>
+      <CardTitle
+        title={item.title}
+        session={sessions.find((session) => session.id === item.secondMateThreadId) ?? primary}
+      />
       {summary && item.stage !== "complete" && (
         <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">
           {summary}
@@ -96,28 +164,28 @@ function WorkCard({
           Waiting on {dep.title} · {dep.owner}
         </span>
       ))}
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 text-2xs text-muted-foreground empty:hidden">
         {runtime !== "Idle" && (
           <span className="inline-flex items-center gap-1">
             <span
               aria-hidden="true"
               className={cn(
                 "size-1.5 rounded-full",
-                runtime === "Running"
-                  ? "bg-success"
+                working
+                  ? "bg-working motion-safe:animate-pulse"
                   : runtime === "Error"
                     ? "bg-destructive"
                     : "bg-muted-foreground",
               )}
             />
-            {runtime}
+            {working ? "Working" : runtime}
           </span>
         )}
         {item.attention !== "none" && <span className="capitalize">{item.attention}</span>}
         {host && <span className="truncate">{host}</span>}
         {time && <time dateTime={time}>{sourceTime(time)}</time>}
       </span>
-    </button>
+    </TaskCardButton>
   );
 }
 
@@ -125,14 +193,26 @@ const Target = Schema.NullOr(PanelTarget);
 
 export function VisualWorkspace() {
   const state = useWorkspaceState();
-  const [target, setTarget] = useWorkspaceTabValue("selected", null, Target);
-  const [form, setForm] = useState<"new" | "orchestrator" | null>(null);
+  const command = useWorkspaceCommand();
+  const readReply = useReadWorkspaceReply();
+  const delivery = useDelivery();
+  const [confirmation, setConfirmation] = useState<BoardItem | null>(null);
+  const [storedTarget, setTarget] = useWorkspaceTabValue("selected", null, Target);
+  const target =
+    storedTarget?.itemId &&
+    state.hosts.some(
+      (host) =>
+        host.environmentId === storedTarget.environmentId &&
+        host.snapshot?.items.some((item) => item.id === storedTarget.itemId && item.retiredAt),
+    )
+      ? null
+      : storedTarget;
+  const [showOrchestrator, setShowOrchestrator] = useState(false);
   const [storedEnvironment, setEnvironment] = useWorkspaceTabValue(
     "environment",
     "",
     Schema.String,
   );
-  const lastConversation = useRef(new Map<string, ThreadId>());
   const [returnTo, setReturnTo] = useWorkspaceTabValue("return-to", null, Target);
   const environment = state.hosts.some((host) => host.environmentId === storedEnvironment)
     ? storedEnvironment
@@ -147,7 +227,7 @@ export function VisualWorkspace() {
   const waitingItems = new Set<string>();
   for (const entry of requests) {
     const key = JSON.stringify([entry.environmentId, entry.threadId]);
-    if (!queue.has(key)) queue.set(key, entry);
+    if (!queue.has(key) || (queue.get(key)?.replyId && !entry.replyId)) queue.set(key, entry);
     if (entry.itemId) waitingItems.add(JSON.stringify([entry.environmentId, entry.itemId]));
   }
   const cards = visibleItems.filter(
@@ -155,65 +235,80 @@ export function VisualWorkspace() {
   );
   const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
   const orchestratorHost =
-    (!form && target?.global
+    (!showOrchestrator && target?.global
       ? state.hosts.find((host) => host.environmentId === target.environmentId)
       : null) ??
     hosts.find((host) => host.environmentId === target?.environmentId) ??
     hosts.find((host) => host.connected && host.snapshot) ??
     hosts[0];
-  const hasPanel = form !== null || target !== null;
+  const hasPanel = showOrchestrator || target !== null;
   function select(target: PanelTarget) {
-    if (target.itemId) {
-      lastConversation.current.set(
-        JSON.stringify([target.environmentId, target.itemId]),
-        target.threadId,
-      );
-    }
-    setForm(null);
+    setShowOrchestrator(false);
     setTarget(target);
+    if (target.worker || !target.itemId) return;
+    const reply = state.requests.find(
+      (request) =>
+        request.environmentId === target.environmentId &&
+        request.itemId === target.itemId &&
+        request.threadId === target.threadId &&
+        request.replyId,
+    );
+    if (reply?.replyId) readReply(target.environmentId, target.itemId, reply.replyId);
   }
   function openItem({ environmentId, item }: BoardItem) {
     setReturnTo(null);
-    const last = lastConversation.current.get(JSON.stringify([environmentId, item.id]));
     select({
       environmentId,
       itemId: item.id,
-      threadId: last && itemHasThread(item, last) ? last : item.primaryThreadId,
+      threadId: item.secondMateThreadId ?? item.primaryThreadId,
     });
   }
+  function retire(entry: BoardItem, onlyIfDone = false) {
+    void delivery.submit(async () => {
+      await command(entry.environmentId, {
+        type: "retire",
+        itemId: entry.item.id,
+        ...(onlyIfDone ? { onlyIfDone: true } : {}),
+      });
+      setConfirmation(null);
+      if (target?.itemId === entry.item.id && target.environmentId === entry.environmentId)
+        setTarget(null);
+      if (returnTo?.itemId === entry.item.id && returnTo.environmentId === entry.environmentId)
+        setReturnTo(null);
+    });
+  }
+  function requestRetirement(entry: BoardItem) {
+    if (delivery.busy) return;
+    if (entry.item.stage === "complete") retire(entry, true);
+    else setConfirmation(entry);
+  }
   function close() {
-    setForm(null);
-    setTarget(returnTo);
+    setShowOrchestrator(false);
+    if (returnTo) select(returnTo);
+    else setTarget(null);
     setReturnTo(null);
   }
   return (
-    <SidebarInset className="@container/workspace h-dvh min-h-0 overflow-hidden">
-      <header className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 md:px-5">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger />
-          <h1 className="text-base font-semibold tracking-tight">Workspace</h1>
-        </div>
-        <div className="flex items-center gap-2">
+    <SidebarInset className="@container/workspace h-dvh min-h-0 overflow-hidden" tone="sidebar">
+      <header
+        className={cn(
+          "drag-region flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-2 md:px-5",
+          COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+        )}
+      >
+        <h1 className="text-lg font-medium tracking-tight">Workspace</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <RetiredTasksMenu hosts={hosts} />
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => {
               if (!target?.global) setReturnTo(target);
-              setForm("orchestrator");
+              setShowOrchestrator(true);
             }}
           >
             <MessageSquareIcon />
-            Orchestrator
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setReturnTo(target);
-              setForm("new");
-            }}
-          >
-            <PlusIcon />
-            New item
+            First Mate
           </Button>
         </div>
       </header>
@@ -224,7 +319,7 @@ export function VisualWorkspace() {
             variant="ghost"
             onClick={() => {
               setReturnTo(null);
-              setForm(null);
+              setShowOrchestrator(false);
               setTarget(null);
             }}
           >
@@ -232,21 +327,25 @@ export function VisualWorkspace() {
           </Button>
         </div>
       )}
-      <div className="relative flex min-h-0 min-w-0 flex-1">
+      <div className="relative mx-2 mb-2 flex min-h-0 min-w-0 flex-1 gap-(--workspace-split-gap) [--workspace-split-gap:--spacing(3)]">
         <section
           className={cn(
-            "flex min-h-0 min-w-0 flex-1 flex-col",
+            "@container/board flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-background shadow-xs",
             hasPanel && "hidden @3xl/workspace:flex",
           )}
           aria-label="Workspace overview"
         >
-          <section
-            aria-label="Needs me"
-            className="@container flex max-h-[40%] shrink-0 flex-col border-b border-border bg-background"
-          >
-            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
+          <section aria-label="Needs me" className="@container flex max-h-[40%] shrink-0 flex-col">
+            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-5 pt-4 pb-2.5">
               <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold">
-                <InboxIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+                <InboxIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "size-4 text-muted-foreground",
+                    queue.size > 0 &&
+                      "text-workspace-attention-strong dark:text-workspace-attention",
+                  )}
+                />
                 Needs me
                 <span className="text-xs font-normal tabular-nums text-muted-foreground">
                   {queue.size}
@@ -269,7 +368,7 @@ export function VisualWorkspace() {
               )}
             </div>
             {queue.size > 0 && (
-              <ul className="flex min-h-0 snap-x snap-proximity items-stretch gap-3 overflow-x-auto overscroll-x-contain px-3 pb-3 scroll-px-3">
+              <ul className="flex min-h-0 snap-x snap-proximity items-stretch gap-3 overflow-x-auto overscroll-x-contain px-5 pb-3 scroll-px-5">
                 {Array.from(queue, ([key, first]) => {
                   const { environmentId, itemId, threadId } = first;
                   const linked = visibleItems.find(
@@ -278,41 +377,53 @@ export function VisualWorkspace() {
                   const session = state.shells.find(
                     (shell) => shell.environmentId === environmentId && shell.id === threadId,
                   );
-                  const title = session?.title ?? linked?.item.title ?? threadId;
-                  const hostLabel =
-                    hosts.length > 1
-                      ? hosts.find((host) => host.environmentId === environmentId)?.label
-                      : null;
+                  const isLead = linked?.item.secondMateThreadId === threadId;
+                  const title = isLead
+                    ? linked.item.title
+                    : (session?.title ?? linked?.item.title ?? threadId);
+                  const host = hosts.find((host) => host.environmentId === environmentId);
+                  const hostLabel = hosts.length > 1 ? host?.label : null;
+                  const viewingLead =
+                    linked &&
+                    !target?.worker &&
+                    (host?.secondMate || linked.item.secondMateThreadId);
+                  const viewingRequest =
+                    !showOrchestrator &&
+                    target?.environmentId === environmentId &&
+                    target.itemId === itemId &&
+                    (viewingLead ? linked.item.secondMateThreadId : target.threadId) === threadId;
                   return (
-                    <li key={key} className="flex w-72 max-w-[88%] shrink-0 snap-start">
-                      <button
-                        type="button"
+                    <li key={key} className="flex w-96 max-w-[90%] shrink-0 snap-start">
+                      <TaskCardButton
+                        entry={linked}
+                        retirement={Boolean(host?.connected && host.retirement)}
+                        panelOpen={hasPanel}
+                        environmentId={environmentId}
+                        onRetire={requestRetirement}
                         aria-label={title}
-                        aria-pressed={
-                          target?.environmentId === environmentId && target.threadId === threadId
-                        }
-                        className="group relative grid w-full content-start gap-1.5 rounded-lg border border-warning/40 bg-card px-3 py-2.5 text-left shadow-xs hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring after:pointer-events-none after:absolute after:-inset-px after:rounded-[inherit] after:border-2 after:border-warning/80 after:opacity-60 motion-safe:after:animate-attention"
-                        onClick={() => {
-                          if (
-                            target?.threadId !== threadId ||
-                            target.environmentId !== environmentId
-                          )
-                            setReturnTo(target);
-                          select({ environmentId, itemId, threadId });
+                        aria-description={first.prompt}
+                        aria-pressed={viewingRequest}
+                        className="group grid w-full grid-cols-[minmax(0,1fr)_auto] content-start items-center gap-x-3 gap-y-1 rounded-xl border border-workspace-attention/30 bg-linear-to-br from-workspace-attention/10 via-workspace-attention/3 to-card px-3.5 py-3 text-left hover:border-workspace-attention/55 aria-pressed:border-workspace-attention/70 focus-visible:outline-2 focus-visible:outline-ring motion-safe:transition-colors"
+                        onOpen={() => {
+                          if (!viewingRequest) setReturnTo(target);
+                          select({ environmentId, itemId, threadId, worker: !isLead });
                         }}
                       >
-                        <span className="truncate text-2xs text-muted-foreground">
+                        <CardTitle title={title} session={session} compact />
+                        <ArrowUpRightIcon
+                          aria-hidden="true"
+                          className="size-3.5 text-muted-foreground motion-safe:transition-transform motion-safe:group-hover:translate-x-px motion-safe:group-hover:-translate-y-px"
+                        />
+                        <span className="col-span-2 line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">
+                          {first.prompt}
+                        </span>
+                        <span className="col-span-2 truncate pt-1 text-2xs text-muted-foreground">
                           {linked ? stageLabel[linked.item.stage] : "Session"}
+                          {isLead && " · Second Mate"}
                           {linked && linked.item.title !== title && ` · ${linked.item.title}`}
                           {hostLabel && ` · ${hostLabel}`}
                         </span>
-                        <span className="line-clamp-2 break-words text-sm font-semibold leading-snug group-hover:underline">
-                          {title}
-                        </span>
-                        <span className="line-clamp-2 break-words text-xs leading-relaxed text-muted-foreground">
-                          {first.prompt}
-                        </span>
-                      </button>
+                      </TaskCardButton>
                     </li>
                   );
                 })}
@@ -331,14 +442,12 @@ export function VisualWorkspace() {
               </p>
             ) : null,
           )}
-          {visibleItems.length === 0 && (
+          {state.hosts.length === 0 && (
             <div className="px-5 pt-5 text-sm text-muted-foreground">
-              {state.hosts.length === 0
-                ? "Connect an environment to see its work."
-                : "Create a work item and choose its primary conversation."}
+              Connect an environment to see its work.
             </div>
           )}
-          <div className="flex min-h-0 min-w-0 flex-1 gap-2.5 overflow-x-auto overflow-y-hidden p-3">
+          <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-4 pt-2 pb-4">
             {stages.map((stage) => {
               const StageIcon = stageIcons[stage];
               const entries = cards.filter((card) => card.item.stage === stage);
@@ -346,9 +455,9 @@ export function VisualWorkspace() {
                 <section
                   aria-label={stageLabel[stage]}
                   key={stage}
-                  className="flex min-h-0 min-w-40 flex-1 flex-col rounded-xl bg-foreground/4 dark:bg-foreground/5"
+                  className="flex min-h-0 min-w-40 flex-1 flex-col @2xl/board:min-w-0"
                 >
-                  <h2 className="flex shrink-0 items-center gap-2 px-3 py-3 text-sm font-semibold">
+                  <h2 className="flex shrink-0 items-center gap-2 border-b border-border/70 px-1 py-2.5 text-sm font-medium">
                     <StageIcon
                       aria-hidden="true"
                       className={cn(
@@ -357,11 +466,11 @@ export function VisualWorkspace() {
                       )}
                     />
                     <span>{stageLabel[stage]}</span>
-                    <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                    <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">
                       {entries.length}
                     </span>
                   </h2>
-                  <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-y-contain px-2 pb-2">
+                  <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-y-contain px-0.5 py-2.5">
                     {entries.map((entry) => {
                       const { environmentId, item } = entry;
                       const host = hosts.find((entry) => entry.environmentId === environmentId);
@@ -371,6 +480,7 @@ export function VisualWorkspace() {
                           entry={entry}
                           dependencies={outstandingDependencies(item, host?.snapshot?.items ?? [])}
                           host={hosts.length > 1 ? (host?.label ?? environmentId) : undefined}
+                          workerTriage={Boolean(host?.workerTriage && item.secondMateThreadId)}
                           connected={host?.connected ?? false}
                           sessions={state.shells.filter(
                             (shell) =>
@@ -380,6 +490,9 @@ export function VisualWorkspace() {
                           selected={
                             target?.itemId === item.id && target.environmentId === environmentId
                           }
+                          retirement={Boolean(host?.connected && host.retirement)}
+                          panelOpen={hasPanel}
+                          onRetire={requestRetirement}
                           onClick={() => openItem(entry)}
                         />
                       );
@@ -392,7 +505,7 @@ export function VisualWorkspace() {
         </section>
         {hasPanel && (
           <WorkspaceSidePane>
-            {form === "orchestrator" || (!form && target?.global) ? (
+            {showOrchestrator || target?.global ? (
               orchestratorHost ? (
                 <OrchestratorPanel
                   key={orchestratorHost.environmentId}
@@ -408,38 +521,57 @@ export function VisualWorkspace() {
                 />
               ) : (
                 <aside className="p-4">
-                  Connect an environment to open Orchestrator.{" "}
+                  Connect an environment to open First Mate.{" "}
                   <Button variant="ghost" onClick={close}>
                     Close
                   </Button>
                 </aside>
               )
-            ) : form === "new" ? (
-              <aside className="overflow-auto border-l border-border bg-background">
-                <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                  <h2 className="font-semibold">New work item</h2>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Close work panel"
-                    onClick={close}
-                  >
-                    <XIcon />
-                  </Button>
-                </div>
-                <ItemCreate
-                  state={state}
-                  onCreate={(environmentId, itemId, threadId) =>
-                    select({ environmentId, itemId, threadId })
-                  }
-                />
-              </aside>
             ) : (
               target && <WorkPanel state={state} target={target} close={close} select={select} />
             )}
           </WorkspaceSidePane>
         )}
       </div>
+      {delivery.error && !confirmation && (
+        <p role="alert" className="px-4 py-2 text-sm text-destructive">
+          {delivery.error}
+        </p>
+      )}
+      <AlertDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retire {confirmation?.item.title}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops active work, settles the Second Mate and workers, and removes the card from
+              the board.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {delivery.error && (
+            <p role="alert" className="px-6 pb-3 text-sm text-destructive">
+              {delivery.error}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" disabled={delivery.busy} />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              disabled={delivery.busy}
+              onClick={() => {
+                if (confirmation) retire(confirmation);
+              }}
+            >
+              Retire task
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </SidebarInset>
   );
 }

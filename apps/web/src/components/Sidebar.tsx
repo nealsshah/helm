@@ -226,6 +226,9 @@ import {
   snoozeWakeLabel,
   type SnoozePreset,
 } from "./Sidebar.snooze";
+import { SidebarSessionIcon } from "./sidebar/SidebarSessionIcon";
+import { ProjectMonogram } from "./ProjectMonogram";
+import { deriveProjectIdentity } from "../projectIdentity";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
 import { useStableCallback } from "../hooks/useStableCallback";
@@ -420,6 +423,7 @@ function useSidebarThreads(input: {
   readonly threads: readonly EnvironmentThreadShell[];
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly routeRowThreadKey: string | null;
+  readonly compact: boolean;
   // Set in boring mode: the project groups to fold active threads into, in order.
   readonly folderGroups: readonly SidebarProjectSnapshot[] | null;
   // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
@@ -518,9 +522,10 @@ function useSidebarThreads(input: {
   const visibleSnoozedThreads = snoozedShelfExpanded
     ? snoozedThreads
     : routeThreadOnly(snoozedThreads, routeRowThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
-    ? workingThreads
-    : routeThreadOnly(workingThreads, routeRowThreadKey);
+  const visibleWorkingThreads =
+    input.compact || workingShelfExpanded
+      ? workingThreads
+      : routeThreadOnly(workingThreads, routeRowThreadKey);
   const projectFolders =
     folderGroups === null
       ? null
@@ -896,13 +901,19 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 function WorkspaceAttentionBadge() {
   const needsAttention = useAtomValue(workspaceNeedsAttentionAtom);
   return needsAttention ? (
-    <span className="ml-auto rounded bg-warning-surface px-1.5 py-0.5 text-2xs text-warning-foreground">
+    <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">
       Needs me
     </span>
   ) : null;
 }
 
-export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+export default function Sidebar({
+  routeReveal,
+  compact = false,
+}: {
+  routeReveal: SidebarRouteReveal;
+  compact?: boolean;
+}) {
   const {
     projects,
     serverConfigs,
@@ -1342,12 +1353,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
-    folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? // An archived project keeps a folder for its active threads, below the rest.
-          [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
-        : scopedProjectGroups
-      : null,
+    compact: compact && !isMobile,
+    folderGroups:
+      boringSidebarEnabled && !(compact && !isMobile)
+        ? scopedProjectGroups.length === 0
+          ? // An archived project keeps a folder for its active threads, below the rest.
+            [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
+          : scopedProjectGroups
+        : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
@@ -2966,6 +2979,86 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     openCommandPalette({ open: "new-thread-in" });
   };
 
+  if (compact && !isMobile) {
+    return (
+      <div
+        className="flex min-h-0 flex-1 flex-col items-center gap-1 pb-2"
+        data-sidebar-icon-rail=""
+      >
+        <div
+          aria-hidden="true"
+          className={
+            isElectron && isMacPlatform(navigator.platform)
+              ? "h-[calc(var(--workspace-topbar-height)*2)] shrink-0 self-stretch drag-region"
+              : "h-(--workspace-topbar-height) shrink-0 self-stretch drag-region"
+          }
+        />
+        <Link
+          to="/workspace"
+          aria-label="Workspace"
+          title="Workspace"
+          className="grid size-9 shrink-0 place-items-center rounded-lg hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          activeProps={{ className: "bg-sidebar-row-hover text-sidebar-foreground" }}
+        >
+          <PanelsTopLeftIcon aria-hidden="true" className="size-4" />
+        </Link>
+        <SidebarHeaderIconButton
+          label="New thread"
+          disabled={projects.length === 0}
+          onClick={handleNewThreadClick}
+        >
+          <PlusIcon />
+        </SidebarHeaderIconButton>
+        <SidebarContent ref={sidebarContentRef}>
+          <ul ref={attachSidebarTree} className="flex flex-col items-center gap-1 py-2">
+            <SidebarDraftBlock
+              compact
+              projectByKey={projectByKey}
+              projectDisplayNameByKey={projectDisplayNameByKey}
+              scopedProjectKeys={scopedProjectKeys}
+              routeDraftId={routeDraftIdForRows}
+              onNavigateToDraft={navigateToDraft}
+              onDraftContextMenu={handleDraftContextMenu}
+            />
+            {orderedThreadKeys.map((key) => {
+              const thread = threadByKey.get(key)!;
+              const ref = scopeThreadRef(thread.environmentId, thread.id);
+              return (
+                <SidebarSessionIcon
+                  key={key}
+                  label={thread.title}
+                  data-sidebar-row={key}
+                  working={isThreadWorking(thread)}
+                  aria-current={key === routeRowThreadKey ? "page" : undefined}
+                  ref={key === routeRowThreadKey ? (node) => revealActiveRow(node, key) : undefined}
+                  onClick={() => navigateToThread(ref)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    handleThreadContextMenu(ref, { x: event.clientX, y: event.clientY });
+                  }}
+                >
+                  <ProjectMonogram
+                    text={deriveProjectIdentity(thread.title).monogram}
+                    color="gray"
+                    className="size-6"
+                  />
+                </SidebarSessionIcon>
+              );
+            })}
+          </ul>
+        </SidebarContent>
+        <Link
+          to="/settings"
+          aria-label="Settings"
+          title="Settings"
+          className="grid size-9 shrink-0 place-items-center rounded-lg hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <SettingsIcon aria-hidden="true" className="size-4" />
+        </Link>
+      </div>
+    );
+  }
+
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (shouldCreateNewThreadInCurrentProject(false, scopeGroups.length, projectGroups.length)
@@ -2986,8 +3079,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               onClick={() => {
                 if (isMobile) setOpenMobile(false);
               }}
-              className="mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              activeProps={{ className: "bg-accent" }}
+              className="mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium motion-safe:transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              activeProps={{
+                className:
+                  "bg-background text-sidebar-foreground shadow-xs ring-1 ring-inset ring-sidebar-border/60",
+              }}
             >
               <PanelsTopLeftIcon className="size-4" /> Workspace <WorkspaceAttentionBadge />
             </Link>

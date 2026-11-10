@@ -1,3 +1,5 @@
+import { secondMateTranscript } from "./workspace/secondMateTranscript";
+import { hostWorkspace } from "./workspace/workspaceHost";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -110,7 +112,15 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
-import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type SetStateAction,
+  use,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { WorkspaceMutationIdContext } from "./chat/ChatMarkdownMedia";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -257,7 +267,8 @@ import {
   useThreadCheckpointSummaries,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
-import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { ChatComposer, type ChatComposerHandle, type WorkspaceRole } from "./chat/ChatComposer";
+import { firstMateDraftKey } from "./workspace/firstMateDraft";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -387,7 +398,7 @@ const EMPTY_COMPOSER_BANNER_ITEMS: ReadonlyArray<ComposerBannerStackItem> = [];
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 
 interface WorkspaceChatDestination {
-  label: string;
+  label?: WorkspaceRole | undefined;
 }
 
 type ChatViewProps =
@@ -400,6 +411,7 @@ type ChatViewProps =
       /** A side chat in its parent's right panel; the parent keeps the keyboard and workspace UI. */
       embedded?: SideChatParentPanel;
       routeKind: "server";
+      showWorkerActivity?: boolean;
       workspaceDestination?: WorkspaceChatDestination;
       draftId?: never;
     }
@@ -410,7 +422,7 @@ type ChatViewProps =
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
       embedded?: never;
-      workspaceDestination?: never;
+      workspaceDestination?: WorkspaceChatDestination;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -481,6 +493,8 @@ export default function ChatView(props: ChatViewProps) {
         ? store.getDraftSession(draftId)
         : null,
   );
+  const firstMateDraft =
+    draftId !== null && draftThread?.logicalProjectKey === firstMateDraftKey(environmentId);
   const serverThreadShell = useQuietThreadShell(routeThreadRef);
   const routeThreadDetailRef = resolveThreadDetailRef(routeThreadRef, {
     shellExists: serverThreadShell !== null,
@@ -533,6 +547,46 @@ export default function ChatView(props: ChatViewProps) {
     activeProviderThread,
   );
   const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
+  const leadFirstMates = useAtomValue(hostWorkspace(environmentId), ({ snapshot }) =>
+    snapshot === null
+      ? undefined
+      : snapshot.items.some((item) => item.secondMateThreadId === threadId)
+        ? snapshot.orchestratorThreadIds
+        : null,
+  );
+  const workspaceRole = useAtomValue(
+    hostWorkspace(environmentId),
+    ({ snapshot }): WorkspaceRole | undefined => {
+      if (!snapshot || routeKind !== "server") return undefined;
+      if (snapshot.orchestratorThreadIds.includes(threadId)) return "First Mate";
+      if (snapshot.items.some((item) => item.secondMateThreadId === threadId)) return "Second Mate";
+      if (
+        snapshot.items.some(
+          (item) =>
+            item.primaryThreadId === threadId ||
+            item.sessions.some((session) => session.threadId === threadId),
+        )
+      )
+        return "Worker";
+      return undefined;
+    },
+  );
+  const showLeadConversation =
+    props.routeKind === "server" &&
+    !props.showWorkerActivity &&
+    (leadFirstMates != null ||
+      props.workspaceDestination?.label === "Second Mate" ||
+      (leadFirstMates === undefined &&
+        (threadId.startsWith("helm:second-mate:") ||
+          threadId.startsWith("helm:replacement-mate:"))));
+  // oxlint-disable-next-line t3code/no-manual-memo -- The incremental timeline resets its render state when this input changes identity.
+  const conversation = useMemo(
+    () =>
+      showLeadConversation && serverProjection
+        ? secondMateTranscript(serverProjection, leadFirstMates ?? [])
+        : null,
+    [showLeadConversation, serverProjection, leadFirstMates],
+  );
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
     if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
@@ -724,7 +778,8 @@ export default function ChatView(props: ChatViewProps) {
   const [scrollToEndClearance, setScrollToEndClearance] = useState(0);
   const fanoutSelectionsAtom = draftFanoutSelectionsAtom(routeThreadKey);
   const { sendInFlight: sendInFlightRef } = draftSendState(routeThreadKey);
-  const multipleModelSelections = useAtomValue(fanoutSelectionsAtom);
+  const configuredFanout = useAtomValue(fanoutSelectionsAtom);
+  const multipleModelSelections = firstMateDraft ? null : configuredFanout;
   const setMultipleModelSelections = (
     selections: SetStateAction<ReadonlyArray<ModelSelection> | null>,
   ) => {
@@ -944,7 +999,9 @@ export default function ChatView(props: ChatViewProps) {
     composerRuntimeMode ??
     (isServerThread ? activeThread?.runtimeMode : undefined) ??
     defaultRuntimeMode;
-  const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const isLocalDraftThread =
+    localDraftThread !== undefined &&
+    (!isServerThread || (firstMateDraft && !serverThread.latestUserMessageAt));
   const canCheckoutPullRequestIntoThread = canWriteSourceControl && isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
   // Turn items can lag projection hydration; keep the environment locked through that gap.
@@ -1251,7 +1308,11 @@ export default function ChatView(props: ChatViewProps) {
   // rule out a started thread: one whose machine is offline never loads its
   // messages, so it would otherwise be offered a machine picker that does nothing.
   const canChangeEnvironment =
-    hasMultipleEnvironments && !envLocked && draftId !== null && !draftThread?.promotedTo;
+    !firstMateDraft &&
+    hasMultipleEnvironments &&
+    !envLocked &&
+    draftId !== null &&
+    !draftThread?.promotedTo;
 
   const loadBalancingSettings = useClientSettings((settings) => ({
     loadBalancingEnabled: settings.loadBalancingEnabled,
@@ -1532,9 +1593,21 @@ export default function ChatView(props: ChatViewProps) {
   // The structure has no assistant or reasoning text, so those rows stay out of
   // ChatView's own entries (anchoring, rewind, prompt history); ThreadTimeline
   // renders every row from the live turn items.
-  const serverTimelineRows = serverVisibleTurnItems.filter(isCompleteTurnItemRow);
+  // oxlint-disable-next-line t3code/no-manual-memo -- The incremental timeline resets its render state when this input changes identity.
+  const conversationItems = useMemo(
+    () =>
+      conversation
+        ? serverVisibleTurnItems.filter(({ item }) => conversation.shows(item))
+        : serverVisibleTurnItems,
+    [serverVisibleTurnItems, conversation],
+  );
+  // oxlint-disable-next-line t3code/no-manual-memo -- The incremental timeline resets its render state when this input changes identity.
+  const serverTimelineRows = useMemo(
+    () => conversationItems.filter(isCompleteTurnItemRow),
+    [conversationItems],
+  );
   const hasStreamedTimelineRows =
-    isServerThread && serverTimelineRows.length !== serverVisibleTurnItems.length;
+    isServerThread && serverTimelineRows.length !== conversationItems.length;
   const serverTimelineEntries = useIncrementalTimelineEntries(activeThreadKey, {
     ...timelineEntriesInput,
     visibleTurnItems: serverTimelineRows,
@@ -1552,6 +1625,7 @@ export default function ChatView(props: ChatViewProps) {
   const timelineMessages = timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
+  const privateActivity = conversation?.isPrivateRun(activeActivityRun?.runId) === true;
   const timelineEmpty = timelineEntries.length === 0 && !hasStreamedTimelineRows;
   const displayedTimelineKey = activeThreadKey ?? routeThreadKey;
   const displayedThreadRef = parseScopedThreadKey(displayedTimelineKey);
@@ -2420,6 +2494,7 @@ export default function ChatView(props: ChatViewProps) {
     serverConfig,
     runtimeMode,
     isWorking,
+    hideWorkerActivity: conversation !== null,
     pendingBackgroundTasks,
     turnItems: serverProjection?.turnItems ?? EMPTY_TURN_ITEMS,
     activePendingApproval,
@@ -2892,6 +2967,7 @@ export default function ChatView(props: ChatViewProps) {
     currentRouteThreadKeyRef,
     draftId,
     draftThread,
+    firstMateDraft,
     activeThread,
     activeThreadKey,
     activeThreadBranch,
@@ -3025,6 +3101,7 @@ export default function ChatView(props: ChatViewProps) {
           })}
           environmentId={activeThread.environmentId}
           threadId={activeThread.id}
+          conversation={conversation}
           optimisticMessages={optimisticUserMessages}
           editingRunId={queuedRunEdit.editingRunId}
           editBlockedReason={queuedRunEditBlockedReason({
@@ -3086,7 +3163,10 @@ export default function ChatView(props: ChatViewProps) {
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
   const hasThreadNow =
     attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
-  const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
+  const queuedRunCount = serverProjection
+    ? getUserQueuedThreadRuns(serverProjection).filter((run) => !conversation?.isPrivateRun(run.id))
+        .length
+    : 0;
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
   const hasQueuedTurns =
@@ -3122,7 +3202,7 @@ export default function ChatView(props: ChatViewProps) {
         <ThreadNow
           key={routeThreadKey}
           attention={attentionNow}
-          work={workNow}
+          work={privateActivity ? null : workNow}
           syncPhase={shownThreadSyncPhase}
           goal={goalNow}
         />
@@ -3397,6 +3477,7 @@ export default function ChatView(props: ChatViewProps) {
                   onRespondToApproval={onRespondToApprovalStable}
                   canOperateThread={canOperateThread}
                   threadDetailRef={routeThreadDetailRef}
+                  conversation={conversation}
                   entriesInput={timelineEntriesInput}
                   draftEntries={isServerThread ? null : draftTimelineEntries}
                   activeThreadKey={activeThreadKey}
@@ -3408,7 +3489,7 @@ export default function ChatView(props: ChatViewProps) {
                   {...(activeProject && !props.workspaceDestination
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
                     : {})}
-                  isWorking={isWorking}
+                  isWorking={isWorking && !privateActivity}
                   runlessWorkActive={runlessWorkStartedAt !== null}
                   isCompacting={isCompacting}
                   awaitingUser={
@@ -3436,13 +3517,17 @@ export default function ChatView(props: ChatViewProps) {
                   footer={timelineFooter}
                   listRef={legendListRef}
                   runs={serverProjection?.runs ?? []}
-                  latestRun={activeActivityRun}
-                  announcedRun={announcedRun(activeActivityRun, serverProjection?.runs ?? [])}
+                  latestRun={privateActivity ? null : activeActivityRun}
+                  announcedRun={
+                    privateActivity
+                      ? null
+                      : announcedRun(activeActivityRun, serverProjection?.runs ?? [])
+                  }
                   detailBehindShell={isDetailBehindShell(
                     activeLatestRun,
                     activeThreadShell?.latestRun ?? null,
                   )}
-                  runningRunId={activeRunningTurnId}
+                  runningRunId={privateActivity ? null : activeRunningTurnId}
                   turnDiffSummaries={turnDiffSummaries}
                   activeThreadEnvironmentId={
                     displayedThreadRef?.environmentId ?? activeThread.environmentId
@@ -3529,6 +3614,12 @@ export default function ChatView(props: ChatViewProps) {
                         }
                       >
                         <DraftHeroHeadline
+                          {...(firstMateDraft
+                            ? {
+                                firstMateDraftKey: firstMateDraftKey(environmentId),
+                                projectLocked: Boolean(serverThread || draftThread?.promotedTo),
+                              }
+                            : {})}
                           draftId={draftId}
                           activeProjectRef={activeProjectRef}
                           activeProjectTitle={activeProject?.title ?? null}
@@ -3545,11 +3636,6 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    {props.workspaceDestination && (
-                      <p className="mb-1 truncate px-2 text-xs text-muted-foreground">
-                        To {props.workspaceDestination.label}
-                      </p>
-                    )}
                     <ChildThreadApprovals threadRef={activeThreadRef} />
                     <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                       <ComposerSurface.Host
@@ -3583,12 +3669,19 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
+                              workspaceRole={
+                                props.workspaceDestination?.label ??
+                                (firstMateDraft
+                                  ? "First Mate"
+                                  : (workspaceRole ?? (isSubagentThread ? "Worker" : undefined)))
+                              }
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}
                               supportsMultipleModels={
+                                !firstMateDraft &&
                                 serverConfig?.environment.capabilities.requiredWorktreeBootstrap ===
-                                true
+                                  true
                               }
                               onMultipleModelSelectionsChange={setMultipleModelSelectionsStable}
                               composerRef={composerRef}

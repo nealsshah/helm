@@ -20,9 +20,11 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../../composerDraftStore";
+import { SidebarSessionIcon } from "./SidebarSessionIcon";
 import { draftPenClassName, draftSurfaceClassName } from "./SidebarThreadRow";
 
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
+  compact?: boolean | undefined;
   draftId: DraftId;
   composer: ComposerThreadDraftState;
   project: ProjectFaviconProject | null;
@@ -79,6 +81,19 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     event.stopPropagation();
     onDiscard(draftId);
   };
+  if (props.compact) {
+    return (
+      <SidebarSessionIcon
+        label={accessibility.label}
+        data-sidebar-row={`draft:${draftId}`}
+        aria-current={accessibility.current}
+        onClick={handleActivate}
+        onContextMenu={handleContextMenu}
+      >
+        <SquarePenIcon aria-hidden="true" className="size-4" />
+      </SidebarSessionIcon>
+    );
+  }
   return (
     <li className="list-none py-0.5">
       <div
@@ -140,6 +155,7 @@ interface SidebarDraftRowData {
 }
 
 export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
+  compact?: boolean;
   projectByKey: ReadonlyMap<string, EnvironmentProject>;
   projectDisplayNameByKey: ReadonlyMap<string, string>;
   scopedProjectKeys: ReadonlySet<string> | null;
@@ -211,6 +227,7 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
         return (
           <SidebarDraftRow
             key={draftId}
+            compact={props.compact}
             draftId={draftId}
             composer={composer}
             project={props.projectByKey.get(projectKey) ?? null}

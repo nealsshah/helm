@@ -36,6 +36,7 @@ import {
   type ThreadNotificationKind,
   type ThreadNotificationObservation,
 } from "./ThreadNotificationCoordinator.logic";
+import { triagesThreadInput, workspaceTriageRoles } from "./workspace/workspaceHost";
 import { toastManager } from "./ui/toast";
 
 interface NotificationState extends ThreadNotificationObservation {
@@ -43,6 +44,7 @@ interface NotificationState extends ThreadNotificationObservation {
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly thread: EnvironmentThreadShell;
   readonly status: SidebarThreadStatus;
+  readonly triageRole: "lead" | "worker" | undefined;
 }
 
 type ToastId = ReturnType<typeof toastManager.add>;
@@ -228,6 +230,7 @@ export function startThreadNotifications(
       environmentThreadShells.pendingSubagentRequestsAtom(environmentId),
     );
     const delegatedUnderParent = registry.get(environmentThreadShells.delegatedUnderParentAtom);
+    const triageRoles = registry.get(workspaceTriageRoles(environmentId));
     const changed: Array<[NotificationState | undefined, NotificationState]> = [];
     for (const rawThread of threads) {
       if (
@@ -240,11 +243,14 @@ export function startThreadNotifications(
         continue;
       }
       const prior = previous.get(rawThread.id);
+      const triageRole = triageRoles.get(rawThread.id);
+      if (triageRole === "retired") continue;
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       if (
         !entry.reconnecting &&
         prior?.raw === rawThread &&
-        prior.subagentRequest === subagentRequest
+        prior.subagentRequest === subagentRequest &&
+        prior.triageRole === triageRole
       ) {
         next.set(rawThread.id, prior);
         continue;
@@ -253,17 +259,17 @@ export function startThreadNotifications(
       let status = resolveSidebarThreadStatus(thread);
       if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
       const attention =
-        status === "input" ||
+        (status === "input" && !triagesThreadInput(triageRole, thread.hasPendingUserInput)) ||
         status === "request" ||
         status === "approval" ||
-        status === "failed" ||
-        status === "limited"
+        ((status === "failed" || status === "limited") && triageRole !== "worker")
           ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const settled = status === "ready" && thread.latestRun?.status === "completed";
       const state = {
         raw: rawThread,
+        triageRole,
         subagentRequest,
         thread,
         status,
@@ -322,7 +328,9 @@ export function startThreadNotifications(
       environmentThreadShells.delegatedUnderParentAtom,
       reobserve,
     );
+    const unsubscribeTriage = registry.subscribe(workspaceTriageRoles(environmentId), reobserve);
     entry.unsubscribe = () => {
+      unsubscribeTriage();
       unsubscribeShell();
       unsubscribeRequests();
       unsubscribeDelegated();

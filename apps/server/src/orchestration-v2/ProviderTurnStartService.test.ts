@@ -170,6 +170,7 @@ function startWithMissingWorktree(
             projectionReadCount += 1;
             return Effect.succeed({
               ...projection,
+              workspaceRole: undefined,
               hasConversation: projection.messages.some(
                 (m) =>
                   m.role === "user" &&
@@ -268,6 +269,7 @@ it.each([
 });
 
 function makeLocalCommandHarness(input: {
+  readonly workspaceRole?: "firstMate" | "secondMate" | "worker";
   readonly text: string;
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
@@ -904,6 +906,7 @@ function makeLocalCommandHarness(input: {
   const getTurnStartContext = vi.fn(() =>
     Effect.succeed({
       ...projection,
+      workspaceRole: input.workspaceRole,
       hasConversation: projection.messages.some(
         (m) =>
           m.role === "user" &&
@@ -1783,6 +1786,26 @@ effectIt.effect("does not mistake a failed state read for a superseded run", () 
     expect(startCheck._tag).toBe("ProjectionStoreReadError");
     expect(finalizeCheck._tag).toBe("ProjectionStoreReadError");
   }),
+);
+
+effectIt.effect.each([undefined, "firstMate", "secondMate", "worker"] as const)(
+  "scopes board instructions to the role on each provider turn (%s)",
+  (workspaceRole) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Check the fix",
+        sideChat: { contextRun: "delivered" },
+        ...(workspaceRole && { workspaceRole }),
+      });
+      yield* harness.start;
+      const prompt = harness.startTurn.mock.calls[0]?.[0].message.text;
+      expect(prompt).toContain("Check the fix");
+      expect(prompt?.includes("t3_workspace_start_task")).toBe(workspaceRole === "firstMate");
+      expect(prompt?.includes("mode async")).toBe(workspaceRole === "secondMate");
+      expect(prompt?.includes("t3_workspace_checkpoint")).toBe(
+        workspaceRole === "worker" || workspaceRole === "secondMate",
+      );
+    }),
 );
 
 effectIt.effect(

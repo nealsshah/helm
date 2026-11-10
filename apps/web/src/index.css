@@ -192,6 +192,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      (composer context, pills). */
   --inset-shadow-control-highlight: 0 1px rgb(255 255 255 / 16%);
   --inset-shadow-control-pressed: 0 1px rgb(0 0 0 / 8%);
+  --color-workspace-attention: var(--color-indigo-400);
+  --color-workspace-attention-strong: var(--color-indigo-600);
+  --ease-workspace-resize: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   /* The composer's elevation: a soft drop pulled in under the surface, shared
      by the composer, its context strip and attached banners. */
@@ -221,9 +224,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     );
   --color-zinc-25: oklch(99.2% 0 0);
   --animate-skeleton: skeleton 2.4s infinite;
+  --animate-workspace-pane: workspace-pane 220ms cubic-bezier(0.16, 1, 0.3, 1);
   /* Duty-cycled indicator animations: long holds with stepped ramps, so the
      compositor updates discrete frames instead of every vsync. */
-  --animate-attention: attention 2.8s ease-in-out infinite;
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
   /* Stash pulses hold a highlight for 1.2s; the row then eases back over 200ms, the count snaps.
@@ -233,6 +236,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --animate-stash-pulse-count: stash-pulse-count 1400ms step-start;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
+  --color-working: var(--color-orange-500);
   --color-warning-surface: var(--warning-surface);
   --color-error-foreground: var(--error-foreground);
   --color-tool-error-icon: var(--tool-error-icon);
@@ -330,13 +334,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       color: var(--color-primary);
     }
   }
-  @keyframes attention {
-    0%,
-    100% {
-      opacity: 0.1;
-    }
-    50% {
-      opacity: 0.9;
+  @keyframes workspace-pane {
+    from {
+      opacity: 0;
+      transform: translateX(6px);
     }
   }
 

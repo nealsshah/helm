@@ -28,9 +28,12 @@ const encodeLegacySavedEnvironments = Schema.encodeEffect(
     Schema.Struct({ version: Schema.Literal(1), records: Schema.Array(Schema.Unknown) }),
   ),
 );
-function layerSafeStorageFor(available: boolean, failDecrypt: Ref.Ref<boolean> | null = null) {
+function layerSafeStorageFor(
+  available: Effect.Effect<boolean>,
+  failDecrypt: Ref.Ref<boolean> | null = null,
+) {
   return Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, {
-    isEncryptionAvailable: Effect.succeed(available),
+    isEncryptionAvailable: available,
     encryptString: (value) => Effect.succeed(textEncoder.encode(`encrypted:${value}`)),
     decryptString: (value) => {
       return Effect.gen(function* () {
@@ -52,7 +55,7 @@ function layerSafeStorageFor(available: boolean, failDecrypt: Ref.Ref<boolean> |
 
 function layerFor(
   baseDir: string,
-  encryptionAvailable = true,
+  encryptionAvailable = Effect.succeed(true),
   failDecrypt: Ref.Ref<boolean> | null = null,
   fileSystemLayer: Layer.Layer<FileSystem.FileSystem> = NodeServices.layer,
 ) {
@@ -91,7 +94,7 @@ function layerFor(
 
 const withStore = <A, E, R>(
   effect: Effect.Effect<A, E, R | DesktopConnectionCatalogStore.DesktopConnectionCatalogStore>,
-  encryptionAvailable = true,
+  encryptionAvailable = Effect.succeed(true),
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -121,7 +124,17 @@ describe("DesktopConnectionCatalogStore", () => {
         assert.isFalse(yield* store.set("{}"));
         assert.deepStrictEqual(yield* store.get, Option.none());
       }),
-      false,
+      Effect.succeed(false),
+    ),
+  );
+
+  it.effect("opens an empty connection catalog without requesting Keychain access", () =>
+    withStore(
+      Effect.gen(function* () {
+        const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
+        assert.deepStrictEqual(yield* store.get, Option.none());
+      }),
+      Effect.die("Opening Keychain prompts for a password"),
     ),
   );
 
@@ -273,7 +286,7 @@ describe("DesktopConnectionCatalogStore", () => {
         prefix: "t3-desktop-connection-catalog-test-",
       });
       const failDecrypt = yield* Ref.make(false);
-      const layer = layerFor(baseDir, true, failDecrypt);
+      const layer = layerFor(baseDir, Effect.succeed(true), failDecrypt);
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
         Effect.provide(layer),
       );

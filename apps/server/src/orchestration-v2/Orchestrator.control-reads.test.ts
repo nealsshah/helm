@@ -1,3 +1,8 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as Workspace from "../workspace/VisualWorkspace.ts";
+import * as Settings from "../serverSettings.ts";
+import * as Threads from "./ThreadManagementService.ts";
+import * as CommandReceipts from "./CommandReceiptStore.ts";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
@@ -457,6 +462,9 @@ it.effect(
           lastError: null,
         },
       });
+      const destination = ProjectId.make("repo:elsewhere");
+      yield* sql`INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at)
+        VALUES(${destination},'Elsewhere','/elsewhere','[]',${DateTime.formatIso(now)},${DateTime.formatIso(now)})`;
       for (const mode of ["live", "message"] as const) {
         const requestId = RuntimeRequestId.make(`request:${mode}`);
         yield* projections.apply({
@@ -479,6 +487,16 @@ it.effect(
             resolvedAt: null,
           },
         });
+        const refused = yield* Effect.flip(
+          orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(`busy-project:${mode}`),
+            threadId,
+            projectId: destination,
+          }),
+        );
+        assert.instanceOf(refused, Orchestrator.OrchestratorDispatchError);
+        assert.match(String(refused.cause), /Finish or stop/);
         const nodeId = NodeId.make(`node:${mode}`);
         yield* projections.apply({
           id: EventId.make(`node:${mode}`),
@@ -608,7 +626,16 @@ it.effect(
         threadId,
         worktreePath: "/new-repo",
       });
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("move-idle-project"),
+        threadId,
+        projectId: destination,
+      });
       const thread = yield* projections.getThread(threadId);
+      assert.equal(thread.projectId, destination);
+      assert.equal(thread.worktreePath, null);
+      assert.equal(thread.branch, null);
       assert.equal(thread.title, "After");
       assert.equal(thread.modelSelection.model, "gpt-6");
       assert.equal(thread.runtimeMode, "approval-required");
@@ -1374,9 +1401,13 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
       childThreadId: task.childThreadId!,
     });
 
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`INSERT INTO helm_items(id, body) VALUES ('research', '{}')`;
-    yield* sql`INSERT INTO helm_memberships(thread_id, item_id) VALUES (${task.childThreadId!}, 'research')`;
+    const workspace = yield* Workspace.VisualWorkspace;
+    yield* workspace.command({
+      type: "create",
+      itemId: "research",
+      primaryThreadId: task.childThreadId!,
+      title: "Research",
+    });
     const directQuestion = requestEvent(
       "event:workspace-question",
       "request:workspace-question",
@@ -1397,7 +1428,31 @@ it.effect("wakes the parent once when its delegated task asks a question", () =>
         ?.status,
       "pending",
     );
-  }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
+    const lead = (yield* workspace.get()).items.find(
+      (item) => item.id === "research",
+    )!.secondMateThreadId!;
+    yield* reactor.handle(directQuestion);
+    const leadMessages = (yield* projections.getThreadRecords(lead, ["messages"])).messages;
+    assert.lengthOf(
+      leadMessages.filter((message) => message.text.includes(directQuestion.payload.id)),
+      1,
+    );
+  }).pipe(
+    Effect.provide(
+      DelegatedTaskQuestionReactor.layer.pipe(
+        Layer.provideMerge(Workspace.layer),
+        Layer.provideMerge(Threads.layer),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            layerTest,
+            CommandReceipts.layer.pipe(Layer.provide(layerDatabase)),
+            Settings.layerTest(),
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    ),
+  ),
 );
 
 it.effect.each([false, true])("rejects thread.create for an existing id (deleted: %s)", (deleted) =>

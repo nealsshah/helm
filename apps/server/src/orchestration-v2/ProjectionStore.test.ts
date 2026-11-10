@@ -3160,15 +3160,24 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         workCursor = page.nextCursor;
       }
       assert.strictEqual(workIds.size, 999);
-      for (const toolName of ["t3-code.delegate_task", "mcp__t3_code__delegate_task"]) {
+      for (const toolName of [
+        "t3-code.delegate_task",
+        "mcp__t3_code__delegate_task",
+        "t3-code.t3_workspace_checkpoint",
+      ]) {
         yield* sql`UPDATE orchestration_v2_projection_turn_items SET type = 'dynamic_tool',
-          payload_json = json_set(payload_json, '$.type', 'dynamic_tool', '$.toolName', ${toolName})
+          payload_json = json_set(payload_json, '$.type', 'dynamic_tool', '$.toolName', ${toolName},
+            '$.input', json('{"publishReply":true}'))
           WHERE thread_id = ${threadId} AND ordinal = 2`;
         const window = yield* projectionStore.getThreadSnapshotWindow(threadId, {
           rowLimit: sqlPageLimit,
           userTurnLimit: 10,
           deferWork: true,
         });
+        assert.strictEqual(
+          window.projection.visibleTurnItems.find((row) => row.item.ordinal === 2)?.item.type,
+          "dynamic_tool",
+        );
         assert.isUndefined(
           window.projection.visibleTurnItems.find((row) => row.item.ordinal === 2)?.item
             .deferredWork,
@@ -3190,9 +3199,27 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           "deferred",
         );
         assert.isUndefined(page.items.find((row) => row.item.ordinal === 2)?.item.deferredWork);
+        const conversation = yield* projectionStore.getThreadHistoryPage(
+          threadId,
+          encodeThreadHistoryCursor({
+            snapshotSequence: 0,
+            sourceThreadId: threadId,
+            sourceItemId: "turn-item:bounded-sql-history:3",
+            position: 2,
+          }),
+          undefined,
+          true,
+          "deferred",
+        );
+        const marker = conversation.items.find((row) => row.item.ordinal === 2)?.item;
+        if (toolName === "t3-code.t3_workspace_checkpoint") {
+          assert.deepEqual(marker?.type === "dynamic_tool" && marker.input, { publishReply: true });
+        } else {
+          assert.isUndefined(marker);
+        }
       }
       yield* sql`UPDATE orchestration_v2_projection_turn_items SET type = 'command_execution',
-        payload_json = json_set(payload_json, '$.type', 'command_execution') WHERE thread_id = ${threadId} AND ordinal = 2`;
+        payload_json = json_set(payload_json, '$.type', 'command_execution', '$.input', 'echo 2') WHERE thread_id = ${threadId} AND ordinal = 2`;
       const sharedRunId = "run:bounded-sql-history:1";
       for (const [ordinal, status] of [
         [0, "completed"],

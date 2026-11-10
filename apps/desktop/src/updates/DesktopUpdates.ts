@@ -373,7 +373,8 @@ export const make = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const policy = yield* DesktopUpdatePolicy.DesktopUpdatePolicy;
   // Any user can set the mock flag, so it never replaces an administrator's update source.
-  const mockUpdates = config.mockUpdates && policy.message === null;
+  const helm = isHelmBuild(environment.appVersion);
+  const mockUpdates = !helm && config.mockUpdates && policy.message === null;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
@@ -392,6 +393,7 @@ export const make = Effect.gen(function* () {
     Ref.get(releaseFloorRef).pipe(
       Effect.map(
         (floor) =>
+          (!helm || isHelmBuild(version)) &&
           desktopUpdateChannelOf(version) === state.channel &&
           (Option.isSome(floor)
             ? compareSemverVersions(version, floor.value) >= 0
@@ -455,7 +457,7 @@ export const make = Effect.gen(function* () {
   const hasUpdateFeedConfig = Ref.get(appUpdateYmlConfigRef).pipe(
     Effect.map(
       (appUpdateYmlConfig) =>
-        Option.isSome(appUpdateYmlConfig) || mockUpdates || policy.feedUrl !== undefined,
+        Option.isSome(appUpdateYmlConfig) || mockUpdates || (!helm && policy.feedUrl !== undefined),
     ),
   );
 
@@ -469,7 +471,7 @@ export const make = Effect.gen(function* () {
         platform: environment.platform,
         appImage: Option.getOrUndefined(config.appImagePath),
         isDebPackage,
-        disabledByEnv: isHelmBuild(environment.appVersion) || config.disableAutoUpdate,
+        disabledByEnv: config.disableAutoUpdate,
         hasUpdateFeedConfig: hasFeedConfig,
       }),
     );
@@ -478,11 +480,13 @@ export const make = Effect.gen(function* () {
   // Without nightly, an install on that channel stays put until its user picks stable: moving it
   // silently would be a downgrade nobody asked for, and checking nightly would break the policy.
   const channelBlockedReason = (channel: DesktopUpdateChannel): Option.Option<string> =>
-    channel === "nightly" && !policy.allowNightly
-      ? Option.some(
-          `${policy.message ?? "Nightly updates are turned off on this machine."} Switch to the stable channel to keep getting updates.`,
-        )
-      : Option.none();
+    channel === "nightly" && helm
+      ? Option.some("Helm receives updates from its own release channel.")
+      : channel === "nightly" && !policy.allowNightly
+        ? Option.some(
+            `${policy.message ?? "Nightly updates are turned off on this machine."} Switch to the stable channel to keep getting updates.`,
+          )
+        : Option.none();
 
   const resolveStateDisabledReason = (channel: DesktopUpdateChannel) =>
     resolveDisabledReason.pipe(Effect.map(Option.orElse(() => channelBlockedReason(channel))));
@@ -540,7 +544,7 @@ export const make = Effect.gen(function* () {
     const state = yield* Ref.get(updateStateRef);
     // A configured updater is disabled only by a channel the managed policy blocks.
     if (state.status === "disabled") return false;
-    if (state.status === "downloading") {
+    if (state.status === "downloading" || (helm && state.status === "downloaded")) {
       yield* logUpdaterInfo("skipping update check while update is active", {
         reason,
         status: state.status,
@@ -557,8 +561,10 @@ export const make = Effect.gen(function* () {
 
       // The flag is shared updater state, so it flips only while this check holds the reservation.
       const restoreDowngrade = yield* electronUpdater.allowDowngrade;
-      if (allowDowngrade) yield* electronUpdater.setAllowDowngrade(true);
-      return yield* electronUpdater.checkForUpdates.pipe(
+      if (allowDowngrade && !helm) yield* electronUpdater.setAllowDowngrade(true);
+      return yield* (
+        helm ? electronUpdater.checkForHelmUpdate : electronUpdater.checkForUpdates
+      ).pipe(
         Effect.ensuring(electronUpdater.setAllowDowngrade(restoreDowngrade).pipe(Effect.ignore)),
         Effect.as(true),
         Effect.catchTags({
@@ -1135,7 +1141,7 @@ export const make = Effect.gen(function* () {
           provider: "generic",
           url: `http://localhost:${config.mockUpdateServerPort}`,
         } as ElectronUpdater.ElectronUpdaterFeedUrl);
-      } else if (policy.feedUrl !== undefined) {
+      } else if (!helm && policy.feedUrl !== undefined) {
         // The administrator's mirror replaces the GitHub feed baked into app-update.yml.
         yield* electronUpdater.setFeedURL({
           provider: "generic",
@@ -1144,11 +1150,12 @@ export const make = Effect.gen(function* () {
       }
 
       const settings = yield* desktopSettings.get;
+      const channel = helm ? "latest" : settings.updateChannel;
       const disabledReason = yield* resolveDisabledReason;
       yield* setState(
         yield* baseUpdateState(
-          settings.updateChannel,
-          Option.orElse(disabledReason, () => channelBlockedReason(settings.updateChannel)),
+          channel,
+          Option.orElse(disabledReason, () => channelBlockedReason(channel)),
         ),
       );
       if (Option.isSome(disabledReason)) {
@@ -1157,8 +1164,8 @@ export const make = Effect.gen(function* () {
       yield* Ref.set(updaterConfiguredRef, true);
 
       yield* electronUpdater.setAutoDownload(false);
-      yield* electronUpdater.setAutoInstallOnAppQuit(false);
-      yield* applyAutoUpdaterChannel(settings.updateChannel);
+      yield* electronUpdater.setAutoInstallOnAppQuit(helm);
+      yield* applyAutoUpdaterChannel(channel);
       yield* electronUpdater.setDisableDifferentialDownload(
         isArm64HostRunningIntelBuild(environment.runtimeInfo),
       );
@@ -1202,7 +1209,10 @@ export const make = Effect.gen(function* () {
       if (Option.isSome(channelBlockedReason(nextChannel))) {
         return yield* new DesktopUpdateChannelManagedError({
           channel: nextChannel,
-          policyMessage: policy.message ?? "Your administrator manages T3 Code updates.",
+          policyMessage: Option.getOrElse(
+            channelBlockedReason(nextChannel),
+            () => "Your administrator manages T3 Code updates.",
+          ),
         });
       }
       // A background check holds the updater only briefly, so wait it out instead of refusing.

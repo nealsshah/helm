@@ -47,6 +47,8 @@ export interface UpdatesHarnessOptions {
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
   let checkCount = 0;
+  let helmChecks = 0;
+  let installOnQuit = false;
   let quitAndInstallCount = 0;
   let downloadCount = 0;
   let allowDowngrade = false;
@@ -80,7 +82,10 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         feedUrls.push(options);
       }),
     setAutoDownload: () => Effect.void,
-    setAutoInstallOnAppQuit: () => Effect.void,
+    setAutoInstallOnAppQuit: (enabled) =>
+      Effect.sync(() => {
+        installOnQuit = enabled;
+      }),
     setChannel: () => Effect.void,
     setAllowPrerelease: () => Effect.void,
     allowDowngrade: Effect.sync(() => allowDowngrade),
@@ -93,6 +98,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         fullChangelog = value;
       }),
     setDisableDifferentialDownload: () => options.setDisableDifferentialDownload ?? Effect.void,
+    checkForHelmUpdate: Effect.sync(() => {
+      helmChecks++;
+    }),
     checkForUpdates: Effect.sync(() => {
       checkCount += 1;
       checkAllowedDowngrade.push(allowDowngrade);
@@ -246,6 +254,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       const installRecord = isInstallRecord(path)
         ? (installRecords.get(path) ?? previousInstallRecord)
         : undefined;
+      if (path === "/missing/resources/app-update.yml" && options.appVersion?.includes("-helm."))
+        return Effect.succeed("provider: github\nowner: nealsshah\nrepo: helm");
       if (installRecord !== undefined) return Effect.succeed(installRecord);
       return path === "/missing/resources/package-type" && options.packageType !== undefined
         ? Effect.succeed(options.packageType)
@@ -295,6 +305,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   return {
     layer,
     checkCount: () => checkCount,
+    helmChecks: () => helmChecks,
+    installOnQuit: () => installOnQuit,
     quitAndInstalls: () => quitAndInstallCount,
     installSteps,
     updateRestartMarkers,

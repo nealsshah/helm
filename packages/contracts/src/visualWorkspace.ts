@@ -2,7 +2,29 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ThreadId, TrimmedNonEmptyString as Text, IsoDateTime } from "./baseSchemas.ts";
 
-export const WorkspaceStage = Schema.Literals(["planning", "building", "qa", "complete"]);
+export const WorkspaceStage = Schema.Literals([
+  "planning",
+  "building",
+  "reviewing",
+  "qa",
+  "complete",
+]);
+export function isWorkspaceCheckpointToolName(name: string | null | undefined): boolean {
+  return !!name && /(?:^|[.:/_-])t3_workspace_checkpoint$/.test(name);
+}
+
+export const WorkspaceCheckpoint = Schema.Struct({
+  stage: WorkspaceStage,
+  needsAttention: Schema.Boolean,
+  summary: Text,
+  publishReply: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Second Mate: show the final reply to the person when a worker brings a requested result before the task is complete.",
+    }),
+  ),
+});
+export type WorkspaceCheckpoint = typeof WorkspaceCheckpoint.Type;
 const previousStages = Schema.Literals(["backlog", "shaping", "review"]);
 const wireStage = Schema.String.pipe(
   Schema.refine(Schema.is(Schema.Union([WorkspaceStage, previousStages])), {
@@ -40,6 +62,9 @@ export const WorkItem = Schema.Struct({
   attention: WorkspaceAttention,
   priority: Schema.Int,
   primaryThreadId: ThreadId,
+  secondMateThreadId: Schema.optional(ThreadId),
+  retiredAt: Schema.optional(IsoDateTime),
+  canReassignPrimary: Schema.optional(Schema.Boolean),
   sessions: Schema.Array(Session),
   artifacts: Schema.Array(Artifact),
   dependencies: Schema.Array(Dependency),
@@ -56,6 +81,7 @@ export const WorkspaceRequest = Schema.Struct({
   threadId: ThreadId,
   kind: Schema.Union([Schema.Literal("attention"), RequestKind]),
   prompt: Text,
+  replyId: Schema.optional(Text),
   context: Schema.String,
   choices: Schema.Array(Text),
   createdAt: IsoDateTime,
@@ -75,6 +101,9 @@ const workspaceSnapshotWire = Schema.Struct({
   ...WorkspaceSnapshot.fields,
   orchestratorThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   orchestratorThreadIds: Schema.optional(Schema.Array(ThreadId)),
+  reviewingItemIds: Schema.optional(Schema.Array(Text)),
+  retiredItems: Schema.optional(Schema.Array(WorkItem)),
+  readyReplies: Schema.optional(Schema.Array(WorkspaceRequest)),
   sessionAttention: Schema.optional(Schema.Array(WorkspaceRequest)),
 });
 const legacyRequestKinds: ReadonlySet<string> = new Set(["question", "review", "error"]);
@@ -87,27 +116,44 @@ export const WorkspaceSnapshotRpc = workspaceSnapshotWire.pipe(
       decode: ({
         orchestratorThreadIds,
         orchestratorThreadId,
-        sessionAttention,
+        sessionAttention = [],
+        readyReplies = [],
+        reviewingItemIds,
+        retiredItems = [],
         requests,
         items,
       }) => ({
         orchestratorThreadIds:
           orchestratorThreadIds ?? (orchestratorThreadId ? [orchestratorThreadId] : []),
-        requests: sessionAttention?.length ? [...requests, ...sessionAttention] : requests,
-        items,
+        requests: [...requests, ...sessionAttention, ...readyReplies],
+        items: [
+          ...items.map((item) =>
+            reviewingItemIds?.includes(item.id) ? { ...item, stage: "reviewing" as const } : item,
+          ),
+          ...retiredItems,
+        ],
       }),
       encode: (snapshot) => ({
         ...snapshot,
+        retiredItems: snapshot.items.filter((item) => item.retiredAt !== undefined),
+        items: snapshot.items
+          .filter((item) => item.retiredAt === undefined)
+          .map((item) => (item.stage === "reviewing" ? { ...item, stage: "qa" as const } : item)),
+        reviewingItemIds: snapshot.items
+          .filter((item) => item.stage === "reviewing")
+          .map((item) => item.id),
         orchestratorThreadId: snapshot.orchestratorThreadIds.at(-1) ?? null,
         requests: snapshot.requests.filter((request) => legacyRequestKinds.has(request.kind)),
+        readyReplies: snapshot.requests.filter((request) => request.replyId !== undefined),
         sessionAttention: snapshot.requests.filter(
-          (request) => !legacyRequestKinds.has(request.kind),
+          (request) => !legacyRequestKinds.has(request.kind) && request.replyId === undefined,
         ),
       }),
     }),
   ),
 );
-export const WorkspaceAgentCommand = Schema.Union([
+const WorkspaceAgentManagementCommand = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("ensureSecondMate"), itemId: Text }),
   Schema.Struct({
     type: Schema.Literal("create"),
     itemId: Text,
@@ -146,8 +192,20 @@ export const WorkspaceAgentCommand = Schema.Union([
     format: Schema.optional(Schema.Literals(["progress", "legacy"])),
   }),
 ]);
+const respondFields = { type: Schema.Literal("respond"), requestId: Text, response: Text };
+export const WorkspaceAgentCommand = Schema.Union([
+  WorkspaceAgentManagementCommand,
+  Schema.Struct({ ...respondFields, itemId: Text }),
+]);
 export const WorkspaceCommand = Schema.Union([
-  WorkspaceAgentCommand,
+  WorkspaceAgentManagementCommand,
+  Schema.Struct({
+    type: Schema.Literal("retire"),
+    itemId: Text,
+    onlyIfDone: Schema.optional(Schema.Literal(true)),
+  }),
+  Schema.Struct({ type: Schema.Literal("restore"), itemId: Text }),
+  Schema.Struct({ type: Schema.Literal("readReply"), itemId: Text, replyId: Text }),
   Schema.Struct({
     type: Schema.Literal("request"),
     itemId: Text,
@@ -160,7 +218,7 @@ export const WorkspaceCommand = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("orchestrator"), threadId: ThreadId }),
   Schema.Struct({ type: Schema.Literal("closeOrchestrator"), threadId: ThreadId }),
-  Schema.Struct({ type: Schema.Literal("respond"), requestId: Text, response: Text }),
+  Schema.Struct({ ...respondFields, itemId: Schema.optional(Text) }),
   Schema.Struct({ type: Schema.Literal("obsolete"), requestId: Text, reason: Text }),
 ]);
 export type WorkspaceCommand = typeof WorkspaceCommand.Type;

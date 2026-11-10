@@ -1,3 +1,4 @@
+import type { SecondMateTranscript } from "../workspace/secondMateTranscript";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { deriveThreadQueueWorkflowState } from "@t3tools/client-runtime/state/thread-workflows";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -87,6 +88,7 @@ export function QueuedRunsControl({
   >;
   readonly editingRunId: RunId | null;
   /** Set while something else holds the composer, such as an open question. */
+  readonly conversation?: SecondMateTranscript | null;
   readonly editBlockedReason: string | null;
   readonly onEditQueuedRun: (request: EditQueuedRunRequest) => void;
   readonly onCancelEdit: () => void;
@@ -111,7 +113,8 @@ export function QueuedRunsControl({
     queuedImageAttachmentResources,
   );
   const workflow = projection ? deriveThreadQueueWorkflowState(projection) : null;
-  const queued = workflow?.queuedRuns ?? [];
+  const queued =
+    workflow?.queuedRuns.filter(({ run }) => !props.conversation?.isPrivateRun(run.id)) ?? [];
   const activeRun = workflow?.activeRun ?? null;
   const canSend = workflow?.canSendNow === true || workflow?.canPromoteToSteer === true;
   const queuedImageUrlById = new Map(

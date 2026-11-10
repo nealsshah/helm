@@ -18,9 +18,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useResizeDrag } from "~/hooks/useResizeDrag";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
-import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
-import * as Schema from "effect/Schema";
 import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -48,6 +46,7 @@ type SidebarContextProps = {
 type SidebarResizableOptions = {
   maxWidth?: number;
   minWidth?: number;
+  compact?: { width: number; onPreview: (compact: boolean | null) => void };
   onResize?: (width: number) => void;
   shouldAcceptWidth?: (context: {
     currentWidth: number;
@@ -57,22 +56,11 @@ type SidebarResizableOptions = {
     sidebarRoot: HTMLElement;
     wrapper: HTMLElement;
   }) => boolean;
-  storageKey?: string;
 };
 
-type SidebarResolvedResizableOptions = {
+type SidebarResolvedResizableOptions = SidebarResizableOptions & {
   maxWidth: number;
   minWidth: number;
-  onResize?: (width: number) => void;
-  shouldAcceptWidth?: (context: {
-    currentWidth: number;
-    nextWidth: number;
-    rail: HTMLButtonElement;
-    side: "left" | "right";
-    sidebarRoot: HTMLElement;
-    wrapper: HTMLElement;
-  }) => boolean;
-  storageKey: string | null;
 };
 
 type SidebarInstanceContextProps = {
@@ -252,11 +240,9 @@ function resolveSidebarResizable({
 
   const options = typeof resizable === "boolean" ? {} : resizable;
   return {
+    ...options,
     maxWidth: options.maxWidth ?? Number.POSITIVE_INFINITY,
     minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
-    storageKey: options.storageKey ?? null,
-    ...(options.onResize ? { onResize: options.onResize } : {}),
-    ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
   };
 }
 
@@ -418,6 +404,8 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
 }
 
 function clampSidebarWidth(width: number, options: SidebarResolvedResizableOptions): number {
+  if (options.compact && width < (options.compact.width + options.minWidth) / 2)
+    return options.compact.width;
   return Math.max(options.minWidth, Math.min(width, options.maxWidth));
 }
 
@@ -470,8 +458,10 @@ function SidebarRail({
     return {
       width,
       edge: side === "left" ? "right" : "left",
-      bounds: { min: options.minWidth, max: options.maxWidth },
-      resize(nextWidth) {
+      bounds: { min: options.compact?.width ?? options.minWidth, max: options.maxWidth },
+      resize(pointerWidth) {
+        const nextWidth = clampSidebarWidth(pointerWidth, options);
+        if (nextWidth === width) return width;
         const accepted =
           options.shouldAcceptWidth?.({
             currentWidth: width,
@@ -482,6 +472,12 @@ function SidebarRail({
             wrapper,
           }) ?? true;
         if (accepted) {
+          if (
+            options.compact &&
+            (nextWidth === options.compact.width) !== (width === options.compact.width)
+          ) {
+            options.compact.onPreview(nextWidth === options.compact.width);
+          }
           setTargetWidth(nextWidth);
           width = nextWidth;
         }
@@ -490,16 +486,10 @@ function SidebarRail({
       finish(finalWidth, moved) {
         wrapper.style.setProperty("--sidebar-width", `${finalWidth}px`);
         suppressClickRef.current = moved;
-        if (options.storageKey) {
-          try {
-            setLocalStorageItem(options.storageKey, finalWidth, Schema.Finite);
-          } catch (error) {
-            console.error("Could not persist sidebar width.", error);
-          }
-        }
         options.onResize?.(finalWidth);
       },
       cleanup() {
+        options.compact?.onPreview(null);
         widthTargets.forEach((element) => {
           element.style.removeProperty("width");
           element.style.removeProperty("transition-duration");
@@ -578,7 +568,43 @@ function SidebarRail({
               if (!event.defaultPrevented) resize.onPointerUp(event);
             }}
             ref={railRef}
-            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (!canResize || !resolvedResizable.compact) return;
+              const { compact, minWidth, maxWidth } = resolvedResizable;
+              const width =
+                props["aria-valuenow"] ??
+                event.currentTarget
+                  .closest("[data-slot=sidebar-container]")!
+                  .getBoundingClientRect().width;
+              const step =
+                event.key === (sidebarInstance?.side === "right" ? "ArrowLeft" : "ArrowRight")
+                  ? 16
+                  : -16;
+              let next;
+              switch (event.key) {
+                case "Home":
+                  next = compact.width;
+                  break;
+                case "End":
+                  next = maxWidth;
+                  break;
+                case "ArrowLeft":
+                case "ArrowRight":
+                  next =
+                    step > 0 && width < minWidth
+                      ? minWidth
+                      : step < 0 && width <= minWidth
+                        ? compact.width
+                        : clampSidebarWidth(width + step, resolvedResizable);
+                  break;
+                default:
+                  return;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              resolvedResizable.onResize?.(next);
+            }}
+            tabIndex={canResize && resolvedResizable.compact ? 0 : -1}
             type="button"
             {...props}
           />
@@ -602,11 +628,16 @@ function SidebarInput({ className, ...props }: Omit<InputProps, "unstyled" | "va
   );
 }
 
-function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
+function SidebarInset({
+  className,
+  tone,
+  ...props
+}: React.ComponentProps<"main"> & { tone?: "sidebar" }) {
   return (
     <main
       className={cn(
-        "relative flex min-w-0 w-full flex-1 flex-col bg-background surface-grain",
+        "relative flex min-w-0 w-full flex-1 flex-col surface-grain",
+        tone === "sidebar" ? "bg-sidebar" : "bg-background",
         "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm/5",
         className,
       )}

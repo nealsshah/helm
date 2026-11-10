@@ -6,6 +6,8 @@ export const PanelTarget = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ThreadId,
   itemId: Schema.NullOr(Schema.String),
+  worker: Schema.optionalKey(Schema.Boolean),
+  showWorkerActivity: Schema.optionalKey(Schema.Boolean),
   global: Schema.optionalKey(Schema.Boolean),
 });
 export type PanelTarget = typeof PanelTarget.Type;

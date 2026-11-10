@@ -7,6 +7,7 @@ import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
+import { ReadWorkspaceReplyOnOpen } from "./workspace/ReadWorkspaceReply";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { SidebarInset } from "./ui/sidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -209,6 +210,12 @@ export function ThreadRouteView({
       inert={background}
     >
       <BackgroundThreadContext value={background}>{view}</BackgroundThreadContext>
+      {view && !background && target.kind === "server" && (
+        <ReadWorkspaceReplyOnOpen
+          key={scopedThreadKey(target.threadRef)}
+          threadRef={target.threadRef}
+        />
+      )}
       {background ? null : redirect}
     </SidebarInset>
   );

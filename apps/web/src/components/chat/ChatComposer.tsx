@@ -232,7 +232,7 @@ import { observeResize } from "~/lib/observeResize";
 
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 import { toastManager } from "../ui/toast";
-import { BuildingIcon, PlayIcon } from "lucide-react";
+import { AnchorIcon, BotIcon, BuildingIcon, CompassIcon, PlayIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { useManagedPolicy } from "../../state/managedPolicy";
 import { proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
@@ -344,7 +344,16 @@ export interface ChatComposerHandle {
   setMultipleModelSelections: (selections: ReadonlyArray<ModelSelection>) => void;
 }
 
+export type WorkspaceRole = "First Mate" | "Second Mate" | "Worker";
+
+const workspaceRoleIcons = {
+  "First Mate": CompassIcon,
+  "Second Mate": AnchorIcon,
+  Worker: BotIcon,
+};
+
 export interface ChatComposerProps {
+  workspaceRole?: WorkspaceRole | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
@@ -503,6 +512,7 @@ const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const NO_PROVIDER_SLASH_COMMANDS: ServerProvider["slashCommands"] = [];
 
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
+  const RoleIcon = props.workspaceRole && workspaceRoleIcons[props.workspaceRole];
   const {
     composerDraftTarget,
     environmentId,
@@ -3245,6 +3255,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               composerProviderState.composerSurfaceClassName,
             )}
           >
+            {props.workspaceRole && RoleIcon && (
+              <div className="flex items-center gap-1.5 px-4 pt-3 text-xs font-semibold text-foreground">
+                <RoleIcon aria-hidden="true" className="size-3.5" />
+                {props.workspaceRole}
+              </div>
+            )}
             {showCollapsedMobilePromptRow ? (
               <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <button
@@ -3306,7 +3322,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-body="true"
               className={cn(
                 "relative px-4 pb-2",
-                "pt-3.5 sm:pt-4",
+                props.workspaceRole ? "pt-1.5" : "pt-3.5 sm:pt-4",
                 isComposerCollapsedMobile && "hidden",
               )}
             >
@@ -3382,7 +3398,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerPromptEditor
                     draftKey={composerDraftTargetKey}
                     // Switching threads lands focus here, so the label names the thread.
-                    ariaLabel={activeThread ? `Message ${activeThread.title}` : "Message"}
+                    ariaLabel={
+                      props.workspaceRole
+                        ? `Message ${props.workspaceRole}`
+                        : activeThread
+                          ? `Message ${activeThread.title}`
+                          : "Message"
+                    }
                     suggestionListId={composerSuggestionListId}
                     activeSuggestionId={
                       composerSuggestionListVisible && activeComposerMenuItem

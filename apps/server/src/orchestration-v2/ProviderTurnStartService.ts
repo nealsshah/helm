@@ -1,3 +1,4 @@
+import { WORKSPACE_ROLE_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -792,16 +793,19 @@ export const layer: Layer.Layer<
         });
         if (!repaired.committed) return;
       }
+      const movedProject =
+        providerThread.nativeProjectId !== undefined &&
+        providerThread.nativeProjectId !== projection.thread.projectId;
       const sessionResult = yield* Effect.result(
         providerSessions.open({
           threadId: projection.thread.id,
           providerSessionId,
           modelSelection: run.modelSelection,
           runtimePolicy: resolvedRuntimePolicy,
-          ...(existingSessionProjection === undefined
+          ...(movedProject || existingSessionProjection === undefined
             ? {}
             : { resumeFromSession: existingSessionProjection }),
-          ...(providerThread.nativeThreadRef?.nativeId == null
+          ...(movedProject || providerThread.nativeThreadRef?.nativeId == null
             ? {}
             : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
           ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
@@ -1263,14 +1267,16 @@ export const layer: Layer.Layer<
             handoff.delivery?.status === "pending",
         );
         const resumed = yield* Effect.result(
-          uncertainDelivery
+          movedProject || uncertainDelivery
             ? Effect.fail(
                 new ProviderAdapter.ProviderAdapterTurnStartError({
                   driver: session.driver,
                   threadId: projection.thread.id,
                   providerThreadId: providerThread.id,
                   runId,
-                  cause: "Uncertain native history injection",
+                  cause: movedProject
+                    ? "Session moved to a different project"
+                    : "Uncertain native history injection",
                 }),
               )
             : session.resumeThread({
@@ -1348,11 +1354,13 @@ export const layer: Layer.Layer<
           driver: session.driver,
           providerThreadId: providerThread.id,
           runId,
-          reason: uncertainDelivery
-            ? "uncertain_history_delivery"
-            : resumed._tag === "Success"
-              ? "handoff_budget_exhausted"
-              : "resume_failed",
+          reason: movedProject
+            ? "project_changed"
+            : uncertainDelivery
+              ? "uncertain_history_delivery"
+              : resumed._tag === "Success"
+                ? "handoff_budget_exhausted"
+                : "resume_failed",
           errorTag: resumed._tag === "Failure" ? resumed.failure._tag : "ContextHandoffBudgetError",
         });
         const replacement = yield* loadFromProvider(
@@ -1430,6 +1438,7 @@ export const layer: Layer.Layer<
       const retryHandoff = resumedRetryHandoff ?? (yield* prepareRetryHandoff(handoffContext));
       const runningProviderThread: OrchestrationV2ProviderThread = {
         ...loadedProviderThread,
+        nativeProjectId: projection.thread.projectId,
         contextUsage: handoffUsage,
         id: providerThread.id,
         driver: session.driver,
@@ -1606,7 +1615,11 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
+          const workspaceContext =
+            projection.workspaceRole && !compact && !goalCommand
+              ? WORKSPACE_ROLE_INSTRUCTIONS[projection.workspaceRole]
+              : "";
+          const context = [delivery.context, sideChatContext, restartNote, workspaceContext]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1673,6 +1686,7 @@ export const layer: Layer.Layer<
         effectiveHandoffs.length === 0 &&
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
+        !projection.workspaceRole &&
         restartNote === "" &&
         !noteContinuation
           ? session

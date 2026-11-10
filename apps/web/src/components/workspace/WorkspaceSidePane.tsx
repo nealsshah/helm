@@ -11,7 +11,8 @@ export function WorkspaceSidePane({ children }: { children: ReactNode }) {
   const measureRow = (panel: HTMLDivElement | null) => {
     const row = panel?.parentElement;
     if (!row) return;
-    const measure = () => setRowWidth(row.clientWidth);
+    const measure = () =>
+      setRowWidth(row.clientWidth - parseFloat(getComputedStyle(row).columnGap));
     measure();
     return observeResize(row, measure);
   };
@@ -31,12 +32,13 @@ export function WorkspaceSidePane({ children }: { children: ReactNode }) {
   return (
     <div
       ref={measureRow}
-      className="relative grid min-h-0 min-w-0 w-full shrink-0 grid-cols-1 grid-rows-1 @3xl/workspace:w-(--resizable-width)"
+      className="relative grid min-h-0 min-w-0 w-full shrink-0 grid-cols-1 grid-rows-1 rounded-2xl border border-border/70 bg-background shadow-xs motion-safe:animate-workspace-pane @3xl/workspace:w-(--resizable-width)"
       style={{ [RESIZABLE_WIDTH_PROPERTY]: `${width}px` } as CSSProperties}
     >
       <RightPanelResizeHandle
         handlers={handlers}
-        className="hidden touch-none after:absolute after:top-1/2 after:left-1/2 after:h-8 after:w-1 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-border hover:after:bg-muted-foreground focus-visible:after:bg-primary @3xl/workspace:block"
+        variant="grip"
+        className="hidden touch-none @3xl/workspace:flex"
         label="Resize workspace chat"
         tabIndex={0}
         aria-valuemin={CHAT_MIN_WIDTH}
@@ -64,7 +66,7 @@ export function WorkspaceSidePane({ children }: { children: ReactNode }) {
           event.stopPropagation();
         }}
       />
-      {children}
+      <div className="grid min-h-0 min-w-0 overflow-hidden rounded-[inherit]">{children}</div>
     </div>
   );
 }

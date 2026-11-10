@@ -2,14 +2,14 @@ import { useAtomValue } from "@effect/atom-react";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { PendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
-import type { EnvironmentId, WorkspaceCommand, WorkspaceSnapshot } from "@t3tools/contracts";
+import type { EnvironmentId, WorkspaceCommand } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { AsyncResult, Atom } from "effect/reactivity";
+import { Atom } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
-import { environmentPresentations, environmentSummaries } from "../../state/presentation";
-import { formatEnvironmentQueryError } from "../../state/query";
+import { environmentSummaries } from "../../state/presentation";
+import { hostWorkspace, workspaceTriageRoles } from "./workspaceHost";
 import { serverEnvironment } from "../../state/server";
 import { environmentThreadShells, environmentThreadDetails } from "../../state/threads";
 import { presentThreadShellFromProjection } from "../ChatView.logic";
@@ -22,26 +22,6 @@ import {
   type QueueEntry,
 } from "./workspaceModel";
 
-interface HostWorkspace {
-  snapshot: WorkspaceSnapshot | null;
-  error: string | null;
-}
-
-const hostWorkspace = Atom.family((environmentId: EnvironmentId) =>
-  Atom.make((get): HostWorkspace => {
-    const previous = Option.getOrNull(get.self<HostWorkspace>());
-    const config = get(environmentPresentations.serverConfigsAtom).get(environmentId);
-    if (!config) return previous ?? { snapshot: null, error: null };
-    if (config.environment.capabilities.visualWorkspace !== true) {
-      return { snapshot: null, error: "This server supports session conversations only." };
-    }
-    const query = get(serverEnvironment.workspaceLive({ environmentId, input: {} }));
-    return {
-      snapshot: AsyncResult.getOrElse(query, () => previous?.snapshot ?? null),
-      error: query._tag === "Failure" ? formatEnvironmentQueryError(query.cause) : null,
-    };
-  }),
-);
 const workspaceList = environmentAtomList("web-workspace-summaries", hostWorkspace);
 
 const workspaceShellsAtom = Atom.make((get) => {
@@ -56,11 +36,19 @@ const workspaceShellsAtom = Atom.make((get) => {
     const snapshot = get(hostWorkspace(environmentId)).snapshot;
     if (!snapshot) continue;
     const threadIds = new Set(
-      snapshot.items.flatMap((item) => [
-        item.primaryThreadId,
-        ...item.sessions.map((s) => s.threadId),
-      ]),
+      snapshot.items.flatMap((item) =>
+        item.retiredAt
+          ? []
+          : [
+              item.primaryThreadId,
+              ...(item.secondMateThreadId ? [item.secondMateThreadId] : []),
+              ...item.sessions.map((s) => s.threadId),
+            ],
+      ),
     );
+    for (const [id, role] of get(workspaceTriageRoles(environmentId))) {
+      if (role === "retired") byThread.delete(threadKey({ environmentId, threadId: id }));
+    }
     for (const threadId of snapshot.orchestratorThreadIds) threadIds.add(threadId);
     for (const threadId of threadIds) {
       const ref = { environmentId, threadId },
@@ -97,15 +85,24 @@ export const workspaceNeedsAttentionAtom = Atom.make((get) => {
   return (
     get(workspaceList(environmentIdsKey(ids))).some(({ snapshot }) =>
       snapshot?.requests.some(
-        (request) => request.status === "open" || request.status === "delivering",
+        (request) =>
+          (request.status === "open" || request.status === "delivering") &&
+          !snapshot.items.some((item) => item.id === request.itemId && item.retiredAt),
       ),
-    ) || [...get(workspaceShellsAtom).values()].some(shellNeedsAttention)
+    ) ||
+    [...get(workspaceShellsAtom).values()].some((shell) =>
+      shellNeedsAttention(
+        shell,
+        get(workspaceTriageRoles(shell.environmentId)).get(shell.id) === "worker",
+      ),
+    )
   );
 });
 
 interface ThreadRequestsState {
   shell: EnvironmentThreadShell;
   pending: PendingThreadRequests | null;
+  triaged: boolean;
 }
 const threadStatesAtom = Atom.make((get) => {
   const next = new Map<string, ThreadRequestsState>();
@@ -113,7 +110,8 @@ const threadStatesAtom = Atom.make((get) => {
   const connected = get(environmentSummaries.connectedEnvironmentIdsAtom);
   for (const [key, shell] of get(workspaceShellsAtom)) {
     let pending: PendingThreadRequests | null = null;
-    if (shell.hasPendingApprovals || shell.hasPendingUserInput) {
+    const triaged = get(workspaceTriageRoles(shell.environmentId)).get(shell.id) === "worker";
+    if (shell.hasPendingApprovals || (!triaged && shell.hasPendingUserInput)) {
       pending = connected.includes(shell.environmentId)
         ? get(
             environmentThreadDetails.pendingRequestsAtom({
@@ -123,7 +121,7 @@ const threadStatesAtom = Atom.make((get) => {
           )
         : (previous?.get(key)?.pending ?? null);
     }
-    next.set(key, { shell, pending });
+    next.set(key, { shell, pending, triaged });
   }
   return next;
 });
@@ -140,13 +138,18 @@ export function useWorkspaceState() {
     return {
       ...env,
       connected: connected.includes(env.environmentId),
+      secondMate: host?.secondMate === true,
+      workerTriage: host?.workerTriage === true,
+      retirement: host?.retirement === true,
       snapshot: host?.snapshot ?? null,
       error: host?.error ?? null,
     };
   });
   const items: BoardItem[] = hosts
     .flatMap((host) =>
-      (host.snapshot?.items ?? []).map((item) => ({ environmentId: host.environmentId, item })),
+      (host.snapshot?.items ?? [])
+        .filter((item) => !item.retiredAt)
+        .map((item) => ({ environmentId: host.environmentId, item })),
     )
     .sort(
       (a, b) =>
@@ -156,23 +159,28 @@ export function useWorkspaceState() {
     );
   const requests: QueueEntry[] = hosts.flatMap((host) =>
     (host.snapshot?.requests ?? [])
-      .filter((request) => request.status === "open" || request.status === "delivering")
+      .filter(
+        (request) =>
+          (request.status === "open" || request.status === "delivering") &&
+          !host.snapshot?.items.some((item) => item.id === request.itemId && item.retiredAt),
+      )
       .map((request) => ({
         key: JSON.stringify([host.environmentId, "workflow", request.id]),
         environmentId: host.environmentId,
         itemId: request.itemId,
         threadId: request.threadId,
         kind: request.kind,
+        replyId: request.replyId,
         prompt: request.prompt,
         createdAt: request.createdAt,
       })),
   );
-  for (const { shell, pending } of threadStates) {
-    if (!shellNeedsAttention(shell)) continue;
+  for (const { shell, pending, triaged } of threadStates) {
+    if (!shellNeedsAttention(shell, triaged)) continue;
     const item = items.find(
       (entry) => entry.environmentId === shell.environmentId && itemHasThread(entry.item, shell.id),
     );
-    requests.push(...nativeQueueEntries(shell, pending, item?.item.id ?? null));
+    requests.push(...nativeQueueEntries(shell, pending, item?.item.id ?? null, triaged));
   }
   requests.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.key.localeCompare(b.key));
   return { hosts, items, requests, shells: threadStates.map(({ shell }) => shell) };

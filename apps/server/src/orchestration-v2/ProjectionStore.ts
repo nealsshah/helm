@@ -1,3 +1,4 @@
+import { workspaceRoleForThread } from "../workspace/VisualWorkspaceSchema.ts";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
 import { pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
@@ -597,7 +598,10 @@ export interface ProjectionStoreV2Shape {
       | "contextHandoffs"
       | "contextTransfers"
       | "turnItems"
-    > & { readonly hasConversation: boolean },
+    > & {
+      readonly hasConversation: boolean;
+      readonly workspaceRole: "firstMate" | "secondMate" | "worker" | undefined;
+    },
     ProjectionStoreV2Error
   >;
   readonly getTurnStartHistory: (
@@ -1963,7 +1967,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     const inlineWorkOutput = sql`item.type = 'dynamic_tool' AND (
       item.payload_json LIKE '%htmlRender%' OR item.payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`}
       OR item.payload_json LIKE '%"viewedImagePath"%'
-      OR item.payload_json LIKE '%"toolName":"%delegate_task"%')`;
+      OR item.payload_json LIKE '%"toolName":"%delegate_task"%'
+      OR item.payload_json LIKE '%"toolName":"%t3_workspace_checkpoint"%')`;
 
     const keepRecordedRunField = (payload: Statement.Fragment, path: string) => sql`
       CASE
@@ -4490,6 +4495,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               ) AS present
             `;
             return {
+              workspaceRole: yield* workspaceRoleForThread(sql, threadId),
               hasConversation:
                 conversation[0]?.present === 1 ||
                 inheritsForkConversation({ thread, contextTransfers, contextHandoffs }),
@@ -5633,6 +5639,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       readonly attemptId?: string | null;
       readonly attemptStatus?: string | null;
       readonly persistentOutput?: boolean;
+      readonly toolName?: string;
       readonly deferredWork?: OrchestrationV2TurnItem["deferredWork"];
     };
     type TimelineIndexRow = {
@@ -5646,6 +5653,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       threadId: ThreadId,
       seen: ReadonlySet<ThreadId>,
       includePersistentOutput?: boolean,
+      conversationOnly?: boolean,
     ) => Effect.Effect<
       {
         readonly records: ProjectionRecords<"runs" | "attempts">;
@@ -5654,7 +5662,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       },
       ProjectionStoreV2Error
     > = Effect.fn("ProjectionStore.readTimelineIndex")(
-      function* (threadId: ThreadId, seen: ReadonlySet<ThreadId>, includePersistentOutput = false) {
+      function* (
+        threadId: ThreadId,
+        seen: ReadonlySet<ThreadId>,
+        includePersistentOutput = false,
+        conversationOnly = false,
+      ) {
         const records = yield* getThreadRecords(threadId, ["runs", "attempts"]);
         const rows = yield* sql<{
           turn_item_id: string;
@@ -5668,6 +5681,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           status: OrchestrationV2TurnItem["status"];
           ordinal: number;
           persistent_output: number;
+          tool_name: string | null;
           attempt_id: string | null;
           attempt_status: string | null;
         }>`SELECT item.turn_item_id, item.run_id, item.node_id, item.parent_item_id, item.type, item.status, item.ordinal,
@@ -5676,6 +5690,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ${
             includePersistentOutput ? sql`CASE WHEN ${inlineWorkOutput} THEN 1 ELSE 0 END` : sql`0`
           } AS persistent_output,
+          ${conversationOnly ? sql`CASE WHEN item.type='dynamic_tool' THEN json_extract(item.payload_json,'$.toolName') END` : sql`NULL`} AS tool_name,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.inputIntent') END AS input_intent,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.createdBy') END AS created_by,
           CASE WHEN item.type IN ('user_message', 'assistant_message') THEN json_extract(item.payload_json, '$.messageId') END AS message_id
@@ -5706,6 +5721,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           attemptId: row.attempt_id,
           attemptStatus: row.attempt_status,
           persistentOutput: row.persistent_output === 1,
+          ...(row.tool_name === null ? {} : { toolName: row.tool_name }),
           ...(row.input_intent === null ? {} : { inputIntent: row.input_intent }),
           ...(row.created_by === null ? {} : { createdBy: row.created_by }),
           ...(row.message_id === null ? {} : { messageId: MessageId.make(row.message_id) }),
@@ -5728,6 +5744,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           fork.threadId,
           new Set([...seen, threadId]),
           includePersistentOutput,
+          conversationOnly,
         );
         const sourceRun = source.records.runs.find((run) => run.id === fork.runId);
         let inherited: Array<TimelineIndexRow> = [];
@@ -5799,7 +5816,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       sql
         .withTransaction(
           Effect.gen(function* () {
-            const index = yield* readTimelineIndex(threadId, new Set(), workMode !== undefined);
+            const index = yield* readTimelineIndex(
+              threadId,
+              new Set(),
+              workMode !== undefined,
+              conversationOnly,
+            );
             if (index.records.thread.deletedAt !== null)
               return yield* new ProjectionStoreThreadNotFoundError({ threadId });
             const revisions = yield* sql<{

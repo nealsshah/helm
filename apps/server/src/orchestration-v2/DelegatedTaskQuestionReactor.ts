@@ -14,7 +14,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { reportLabel } from "@t3tools/provider-core/server/notification";
 
-import { workspaceOwnsThread } from "../workspace/VisualWorkspaceSchema.ts";
+import { makeWorkerReview } from "../workspace/WorkerReview.ts";
+import { workspaceItemIdForThread } from "../workspace/VisualWorkspaceSchema.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -30,6 +31,7 @@ export class DelegatedTaskQuestionReactor extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const engine = yield* Orchestrator.OrchestratorV2;
+  const workerReview = yield* makeWorkerReview;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
 
   const wakeParent = Effect.fnUntraced(function* (
@@ -37,8 +39,8 @@ const make = Effect.gen(function* () {
     request: OrchestrationV2RuntimeRequest,
   ) {
     if (task.childThreadId === null) return;
-    // The workspace presents associated workers' questions directly to the person.
-    if (yield* workspaceOwnsThread(sql, task.childThreadId)) return;
+    // Workspace-linked questions are delivered to their Second Mate separately.
+    if (yield* workspaceItemIdForThread(sql, task.childThreadId)) return;
     const key = `${task.threadId}:${request.id}`;
     const label = reportLabel(task.title?.trim() || task.prompt);
     const situation =
@@ -66,6 +68,8 @@ const make = Effect.gen(function* () {
   // Runs for every domain event; most events return before any work is needed.
   const handle: DelegatedTaskQuestionReactor["Service"]["handle"] = Effect.fnUntraced(
     function* (event) {
+      const reviewed = yield* workerReview.handle(event);
+      if (reviewed && event.type === "runtime-request.updated") return;
       if (event.type === "run.updated") {
         if (!["completed", "failed", "waiting"].includes(event.payload.status)) return;
         const parent = yield* projections.getThreadRecords(event.threadId, ["subagents"]);
@@ -172,14 +176,24 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  const start: DelegatedTaskQuestionReactor["Service"]["start"] = () =>
-    forkParked(
+  const start = Effect.fn("DelegatedTaskQuestionReactor.start")(function* () {
+    yield* forkParked(
       Stream.runForEach(engine.streamDomainEvents, handle).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("delegated task question event stream failed", { cause }),
         ),
       ),
     );
+    yield* forkParked(
+      workerReview
+        .recover()
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Recovering worker reviews failed", { cause }),
+          ),
+        ),
+    );
+  });
 
   return { start, handle } satisfies DelegatedTaskQuestionReactor["Service"];
 });

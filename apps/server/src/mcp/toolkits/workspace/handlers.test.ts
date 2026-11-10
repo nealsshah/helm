@@ -12,7 +12,8 @@ import * as Stream from "effect/Stream";
 import * as Workspace from "../../../workspace/VisualWorkspace.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import { liveThreadShell, liveThreadsLayer } from "../../McpToolAccess.testkit.ts";
 import * as WorkspaceHandlers from "./handlers.ts";
 import { WorkspaceToolkit } from "./tools.ts";
 
@@ -93,6 +94,140 @@ it.effect("keeps an explicit foreign item and its requests out of a worker's res
   ),
 );
 
+it.effect("shows a Second Mate the existing task it leads and its worker chats", () =>
+  Effect.gen(function* () {
+    const toolkit = yield* WorkspaceToolkit;
+    const replies = yield* toolkit
+      .handle("t3_workspace_read", {})
+      .pipe(Stream.unwrap, Stream.runCollect);
+    expect(replies.at(-1)?.result).toMatchObject({
+      items: [{ id: "owned" }],
+      sessions: [{ threadId: "old-worker" }, { threadId: worker }],
+      requests: [],
+      orchestratorThreadIds: [],
+    });
+  }).pipe(
+    Effect.provideService(McpInvocationContext.McpInvocationContext, provider),
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(WorkspaceHandlers.layer).pipe(
+        Layer.provideMerge(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) => Effect.succeed(liveThreadShell(id)),
+            getShellSnapshot: () =>
+              Effect.succeed({
+                threads: [ThreadId.make("old-worker"), worker, unrelated].map((id) =>
+                  liveThreadShell(id),
+                ),
+                archivedThreads: [],
+                schemaVersion: 1,
+                snapshotSequence: 0,
+              }),
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.mock(Workspace.VisualWorkspace)({
+            get: () =>
+              Effect.succeed({
+                ...snapshot,
+                items: [
+                  ...snapshot.items,
+                  {
+                    ...hiddenItem,
+                    id: "owned",
+                    primaryThreadId: ThreadId.make("old-worker"),
+                    secondMateThreadId: worker,
+                  },
+                ],
+              }),
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("returns the Second Mate chat for both new and existing tasks", () =>
+  Effect.gen(function* () {
+    const toolkit = yield* WorkspaceToolkit;
+    const created = yield* toolkit
+      .handle("t3_workspace_start_task", {
+        itemId: "export",
+        title: "Export",
+        brief: "Add CSV export",
+      })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    const opened = yield* toolkit
+      .handle("t3_workspace_update", { command: { type: "ensureSecondMate", itemId: "export" } })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    for (const replies of [created, opened]) {
+      expect(replies.at(-1)?.result).toEqual({
+        itemId: "export",
+        secondMateThreadId: "lead",
+        link: "<t3-thread://v2/test/lead>",
+      });
+    }
+  }).pipe(
+    Effect.provideService(McpInvocationContext.McpInvocationContext, provider),
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(WorkspaceHandlers.layer).pipe(
+        Layer.provideMerge(liveThreadsLayer),
+        Layer.provideMerge(
+          Layer.mock(Workspace.VisualWorkspace)({
+            startTask: () =>
+              Effect.succeed({ itemId: "export", secondMateThreadId: ThreadId.make("lead") }),
+            command: () =>
+              Effect.succeed({
+                ...snapshot,
+                items: [{ ...hiddenItem, id: "export", secondMateThreadId: ThreadId.make("lead") }],
+              }),
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("lets an approval-required Second Mate relay a response to its worker", () =>
+  Effect.gen(function* () {
+    const toolkit = yield* WorkspaceToolkit;
+    const command = {
+      type: "respond",
+      itemId: "owned",
+      requestId: "worker-question",
+      response: "Use the task's default.",
+    } as const;
+    const results = yield* toolkit
+      .handle("t3_workspace_update", { command })
+      .pipe(Stream.unwrap, Stream.runCollect);
+    expect(results.at(-1)?.result).toEqual({ itemId: "owned" });
+  }).pipe(
+    Effect.provideService(McpInvocationContext.McpInvocationContext, provider),
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(WorkspaceHandlers.layer).pipe(
+        Layer.provideMerge(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) =>
+              Effect.succeed(liveThreadShell(id, { runtimeMode: "approval-required" })),
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.mock(Workspace.VisualWorkspace)({
+            command: (command, actor) => {
+              expect(command).toMatchObject({
+                type: "respond",
+                itemId: "owned",
+                requestId: "worker-question",
+              });
+              expect(actor?.threadId).toBe(worker);
+              return Effect.succeed(snapshot);
+            },
+          }),
+        ),
+      ),
+    ),
+  ),
+);
+
 it.effect(
   "denies management to read-only clients and native subagents of a registered orchestrator",
   () =>
@@ -125,6 +260,52 @@ it.effect(
             Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
           );
         expect(result.at(-1)?.result).toMatchObject({ code: "capability_denied" });
+        const creation = yield* toolkit
+          .handle("t3_workspace_start_task", {
+            itemId: "another",
+            title: "Another task",
+            brief: "Implement export",
+          })
+          .pipe(
+            Stream.unwrap,
+            Stream.runCollect,
+            Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          );
+        expect(creation.at(-1)?.result).toMatchObject({ code: "capability_denied" });
+      }
+    }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect(
+  "rejects workspace checkpoints from a replaced provider or an unprivileged credential",
+  () =>
+    Effect.gen(function* () {
+      const toolkit = yield* WorkspaceToolkit;
+      for (const [scope, code] of [
+        [{ ...provider, capabilities: new Set<never>() }, "capability_denied"],
+        [
+          {
+            ...provider,
+            thread: {
+              ...provider.thread!,
+              providerInstanceId: ProviderInstanceId.make("replaced"),
+            },
+          },
+          "parent_not_active",
+        ],
+      ] as const) {
+        const replies = yield* toolkit
+          .handle("t3_workspace_checkpoint", {
+            stage: "building",
+            needsAttention: false,
+            summary: "Working on the fix",
+          })
+          .pipe(
+            Stream.unwrap,
+            Stream.runCollect,
+            Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+          );
+        expect(replies.at(-1)?.result).toMatchObject({ code });
       }
     }).pipe(Effect.provide(testLayer)),
 );

@@ -1,5 +1,20 @@
 import type { ProviderInteractionMode } from "@t3tools/contracts";
 
+const WORKSPACE_CHECKPOINT_INSTRUCTIONS =
+  "You are working on an assigned Helm ticket. Call t3_workspace_checkpoint as soon as you understand the next action, before doing the work. Call again when the action changes and as your last tool call before every final reply or yield, including when waiting for another agent. Choose planning for unresolved scope or design, building for implementation or fixes, reviewing for inspecting code or findings, qa for exercising the running feature, and complete only after verifying delivery. Keep the current stage while waiting.";
+
+export const WORKSPACE_ROLE_INSTRUCTIONS = {
+  firstMate:
+    "You are a First Mate coordinating this Helm workspace. For a new task call t3_workspace_start_task with a stable itemId, a short title and the actionable brief. When the person names a destination project, pass its name or workspace path in project on that call. Start it directly from this First Mate; a setup task or worker is unnecessary. It starts that task's Second Mate and returns its chat link. Return the link so the person can direct that task. For an existing task, use t3_workspace_read to find its secondMateThreadId. If it is missing, call t3_workspace_update with an ensureSecondMate command for that itemId. Send the follow-up to the returned Second Mate with t3_thread_send. Coordinate across tasks here; implementation belongs to each task's workers.",
+  secondMate:
+    "You are this task's Second Mate, the person's ongoing contact. Read t3_workspace_read for your task scope, existing workers, requests and prior reports. Answer directly when the conversation, board, or existing worker reports contain what you need. Whenever a request needs fresh evidence or project work, hand it to a background worker before inspecting files, running commands, or starting a repository workflow yourself. This includes read-only investigations, research, code review, implementation, and verification, on the initial request and on follow-ups. Pass the person's constraints to the worker, including investigation-only scope. Call orchestrator_capabilities before your first delegation, then use delegate_task with mode async and a stable clientRequestId. After dispatch, end your turn so the person can send another prompt. Address their request briefly and keep worker instructions and routine handoffs in worker chats. A worker notification begins a private turn. On your final t3_workspace_checkpoint, set publishReply false for routine progress, handoffs, acknowledgments, and waiting. Set publishReply true only if the worker delivered a concrete result the person asked to receive now, and state that result in your final reply. If the person needs to decide something, set needsAttention true and ask them. On verified completion, report the outcome in your final reply. Decisions and completion already reach the person. You own the overall stage; mark complete only once every requested deliverable is verified. " +
+    "Review worker questions against the task brief and prior decisions. When you can decide, send the answer or direction to the waiting worker. For an open entry in the board’s requests list, use t3_workspace_update with command {type:'respond', itemId, requestId, response}. Answering resumes the same worker; do not delegate another. For a native user_input in a session’s pending list, use t3_pending_request to read and respond on its worker thread. Only a person can grant a provider permission in its original session. If the decision or action genuinely needs the person, ask one clear question in this chat and set needsAttention true on your own checkpoint with the question in summary. Keep the worker request open. When the person replies, send their answer through the original request and clear your flag once no human decision remains. " +
+    WORKSPACE_CHECKPOINT_INSTRUCTIONS,
+  worker:
+    "When you need a decision or action, checkpoint with needsAttention true and state the precise blocker in summary. This asks the task's Second Mate to decide. Yield and resume on its answer. Keep needsAttention false for ordinary progress. " +
+    WORKSPACE_CHECKPOINT_INSTRUCTIONS,
+} as const;
+
 // Codex truncates entries over 4,000 bytes; keep each section self-contained and below that limit.
 export const T3_CODE_ORCHESTRATION_SECTIONS: ReadonlyArray<string> = [
   `## T3 Code orchestration
@@ -12,7 +27,7 @@ Ordinary coding tasks need no T3 tools.
 - Follow a running delegate's \`next\`. Do not poll it (\`task_status\`, \`sleep\`, watchers, Monitor, ScheduleWakeup). Stop a delegate run you replace or no longer need with \`task_cancel\`, never \`t3_thread_interrupt\` on a \`childThreadId\`.
 - If you are a subagent or child, do the work yourself. Start no subagents unless your task says to.`,
   `- \`t3_thread_launch\` and \`create_threads\` make new top-level threads, only when the user asks for a new thread. "Subagent", "delegate", and "parallel" never mean one. Worktree thread: set \`workspaceStrategy\`; shell worktrees do not bind it, and no checkout setup in its prompt. No \`workspaceStrategy\`: project root, not your worktree.
-- For assigned board work, use \`t3_workspace_read\` and \`t3_workspace_update\`. Keep your card current without being asked. Report stage planning while scoping, building when implementing or fixing, qa when testing or reviewing, and complete once the deliverable is verified and no input remains. When you need a person, report needsAttention: true with a short reason and explain what to do in this chat. Their reply clears attention. If you resume independently, report needsAttention: false. Send a global message only for explicit cross-item direction.
+- For assigned board work, use \`t3_workspace_checkpoint\` to record your stage and any need for a person. First Mates coordinate tasks across the board.
 - Given a thread id, \`t3_thread_read\` it before you answer about it.
 - Another machine: \`t3_environment_links\` lists linked ones. Pass its \`environmentId\` to a T3 tool to act there. Ids are then that machine's, so pass \`threadId\`.
 - A machine the user names that is not linked ("delegate this to my vps"): call \`t3_environment_link\` with a \`hint\` from their words. Never ask for a pairing code in chat.
@@ -22,7 +37,7 @@ Ordinary coding tasks need no T3 tools.
   `### Visuals and preview
 
 - Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass its HTML to \`html_preview\`, then \`html_render\`. If the visual is a file, pass that file's HTML. A screenshot on disk or a text description does not show it. Never start a server for it. Tools a web page exposes give data only. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.
-- Never use \`preview_*\` unasked to verify or show your own edit. Use them when the current request asks for browser work, including recording edits, or names a page or tab. Do not repeat preview calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.`,
+- If the user requests the Browser panel, refers to its tab, or Ego Browser is unavailable, use the panel (\`preview_status\` first). Otherwise, for browser work, run \`ego-browser skill\` and follow its guide. Public lookups use web fetch or search. Only browse when asked. Close your tabs unless requested or in use.`,
 ];
 
 export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
@@ -34,7 +49,7 @@ export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code browser
 
-When browser work was asked, \`preview_*\` is the browser you share with the user: \`preview_status\` first, then \`preview_open\` if no tab can be automated. Prefer snapshot locators over coordinates. Switch browsers only if the tools are absent or \`preview_open\` says unsupported, the user asks, or two preview calls fail on one step. Then quote the error and switch.
+For the built-in panel, call \`preview_status\`, then \`preview_open\` if no tab is available. Prefer snapshot locators over coordinates.
 `;
 
 const T3_CODE_DEVICE_TOOLS = ["device_list", "device_open", "device_screenshot", "device_close"];

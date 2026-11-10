@@ -2192,6 +2192,14 @@ export const layerWsRpc = (
               startup
                 .enqueueCommand(
                   ThreadMessageIntake.launchThread({
+                    ...(input.workspaceRole === "firstMate"
+                      ? {
+                          registerFirstMate: (threadId: ThreadId) =>
+                            workspace
+                              .command({ type: "orchestrator", threadId })
+                              .pipe(Effect.asVoid),
+                        }
+                      : {}),
                     commandId: input.commandId,
                     ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                     ...(input.reuseExistingThread === undefined

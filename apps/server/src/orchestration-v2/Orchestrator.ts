@@ -3435,15 +3435,75 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
 
+    const destinationProject =
+      command.type === "thread.metadata.update" && command.projectId !== thread.projectId
+        ? command.projectId
+        : undefined;
+    const changingProject = destinationProject !== undefined;
+    const changingWorkspace =
+      changingProject ||
+      (command.type === "thread.metadata.update" &&
+        command.worktreePath !== undefined &&
+        command.worktreePath !== thread.worktreePath);
+    if (command.type === "thread.metadata.update" && changingProject) {
+      const project = yield* projects.get(destinationProject).pipe(mapDispatchError(command));
+      if (Option.isNone(project) || project.value.archivedAt != null)
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Choose an active project in this environment.",
+        });
+      const state = yield* loadProjectionForCommand(command, [
+        "runs",
+        "runtimeRequests",
+        "providerThreads",
+        "providerSessions",
+      ]);
+      if (
+        state.runs.some((run) => isActiveRun(run) || run.status === "queued") ||
+        state.runtimeRequests.some((request) => request.status === "pending")
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Finish or stop the current work before changing projects.",
+        });
+      for (const session of state.providerSessions) {
+        if (yield* sessionHasBackgroundWork(session, state.providerThreads))
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Wait for background work to finish before changing projects.",
+          });
+      }
+      const occurredAt = yield* DateTime.now;
+      for (const native of state.providerThreads) {
+        if (native.ownerNodeId !== null) continue;
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "provider-thread.updated",
+          threadId: command.threadId,
+          driver: native.driver,
+          providerInstanceId: native.providerInstanceId,
+          occurredAt,
+          payload: {
+            ...native,
+            nativeProjectId: native.nativeProjectId ?? thread.projectId,
+            providerSessionId: null,
+            updatedAt: occurredAt,
+          },
+        });
+      }
+    }
     const needsProviderState =
       command.type === "thread.runtime-mode.set" ||
       command.type === "thread.model-selection.set" ||
       command.type === "provider.switch" ||
       command.type === "thread.archive" ||
       command.type === "thread.settle" ||
-      (command.type === "thread.metadata.update" &&
-        command.worktreePath !== undefined &&
-        command.worktreePath !== thread.worktreePath);
+      changingWorkspace;
     const providerContext = needsProviderState
       ? yield* projectionStore
           .getThreadProviderContext(
@@ -3781,6 +3841,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       : []),
                   ],
                 }),
+            ...(changingProject
+              ? {
+                  projectId: destinationProject,
+                  branch: null,
+                  worktreePath: null,
+                  branchPullRequest: null,
+                }
+              : {}),
             ...(command.regenerateTitle === true
               ? { titleRegeneration: { requestId: command.commandId, startedAt: now } }
               : command.regenerateTitle === false || command.title !== undefined
@@ -4222,9 +4290,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const detachSessionIds = new Set(
       command.type === "thread.archive" || command.type === "thread.settle"
         ? (providerContext?.providerSessions ?? []).map((session) => session.id)
-        : command.type === "thread.metadata.update" &&
-            command.worktreePath !== undefined &&
-            command.worktreePath !== thread.worktreePath
+        : changingWorkspace
           ? (providerContext?.providerSessions ?? []).map((session) => session.id)
           : command.type === "thread.runtime-mode.set"
             ? (providerContext?.providerSessions ?? [])
@@ -4296,7 +4362,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
     }
 
-    if (command.type === "thread.archive") {
+    if (command.type === "thread.archive" || changingProject) {
       yield* Ref.update(effects, (existing) => [
         ...existing,
         {

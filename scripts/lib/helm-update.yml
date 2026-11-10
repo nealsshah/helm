@@ -1,0 +1,6 @@
+provider: github
+owner: nealsshah
+repo: helm
+private: true
+channel: latest
+updaterCacheDirName: helm-updater

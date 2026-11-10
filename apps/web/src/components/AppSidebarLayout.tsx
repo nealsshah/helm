@@ -17,7 +17,11 @@ import {
   threadUndoClaimsShortcut,
   undoLatestThreadAction,
 } from "../hooks/showThreadUndoNotice";
-import { getLocalStorageItem, removeLocalStorageItem } from "../hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../hooks/useLocalStorage";
 import {
   isRichTextBoldShortcut,
   resolveShortcutCommand,
@@ -51,6 +55,7 @@ import {
   resolveThreadSidebarMinimumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+  THREAD_SIDEBAR_ICON_WIDTH,
 } from "./threadSidebarWidth";
 import {
   Sidebar,
@@ -312,7 +317,7 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
   };
 }
 
-function SidebarControl() {
+function SidebarControl({ compact }: { compact: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -376,6 +381,16 @@ function SidebarControl() {
       ref={appShellCommandsRef}
       className={cn(
         "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
+        compact &&
+          isSidebarVisible &&
+          !isMobile &&
+          "left-[calc(var(--sidebar-width-icon)/2)] ml-0 -translate-x-1/2",
+        compact &&
+          isSidebarVisible &&
+          !isMobile &&
+          isElectron &&
+          isMacPlatform(navigator.platform) &&
+          "top-(--workspace-topbar-height)",
         isMobile && mobileSheetMounted && "hidden",
       )}
       data-sidebar-control=""
@@ -384,7 +399,9 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
-              variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
+              variant={
+                isSidebarVisible && !compact && stageBackdropVariant ? "media-navigation" : "ghost"
+              }
               className={cn(
                 "pointer-events-auto",
                 isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
@@ -417,6 +434,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // A clamped drag may not change width, so viewport changes need a separate subscription.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   const [brandWidth, setBrandWidth] = useState(0);
+  const [controlsInset, setControlsInset] = useState(90);
+  const [previewCompact, setPreviewCompact] = useState<boolean | null>(null);
+  const compact = previewCompact ?? sidebarWidth === THREAD_SIDEBAR_ICON_WIDTH;
   const sidebarMinimumWidth = resolveThreadSidebarMinimumWidth(brandWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth, sidebarMinimumWidth);
   const resetSidebarWidth = () => {
@@ -436,8 +456,18 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
       : {}
   ) as CSSProperties;
+  // Leave the native traffic lights over the rail at any Electron zoom level.
+  const compactWidth =
+    isMacosDesktop && !isWindowFullscreen
+      ? Math.max(THREAD_SIDEBAR_ICON_WIDTH, controlsInset)
+      : THREAD_SIDEBAR_ICON_WIDTH;
+  const resolvedWidth =
+    sidebarWidth === THREAD_SIDEBAR_ICON_WIDTH
+      ? compactWidth
+      : clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth);
   const sidebarProviderStyle = {
-    "--sidebar-width": `${clampThreadSidebarWidth(sidebarWidth, sidebarMinimumWidth, sidebarMaximumWidth)}px`,
+    "--sidebar-width": `${resolvedWidth}px`,
+    "--sidebar-width-icon": `${compactWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...windowControlsInsetStyle,
   } as CSSProperties;
@@ -450,7 +480,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         defaultOpen
         style={sidebarProviderStyle}
       >
-        <SidebarBrandWidthProbe isElectron={isElectron} onWidthChange={setBrandWidth} />
+        <SidebarBrandWidthProbe
+          isElectron={isElectron}
+          onWidthChange={setBrandWidth}
+          onControlsInsetChange={setControlsInset}
+        />
         <Sidebar
           side="left"
           collapsible="offcanvas"
@@ -464,17 +498,33 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
               nextWidth <= currentWidth ||
               wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
+            compact: { width: compactWidth, onPreview: setPreviewCompact },
+            onResize: (width) => {
+              const preference = width === compactWidth ? THREAD_SIDEBAR_ICON_WIDTH : width;
+              setSidebarWidth(preference);
+              try {
+                setLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, preference, Schema.Finite);
+              } catch (error) {
+                console.error("Could not persist sidebar width.", error);
+              }
+            },
           }}
           style={windowControlsInsetStyle}
         >
-          <ThreadSidebar routeReveal={sidebarRouteReveal} />
-          <SidebarRail onDoubleClick={resetSidebarWidth} />
+          <ThreadSidebar routeReveal={sidebarRouteReveal} compact={compact} />
+          <SidebarRail
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={compactWidth}
+            aria-valuemax={sidebarMaximumWidth}
+            aria-valuenow={resolvedWidth}
+            aria-valuetext={compact ? "Icons only" : `${resolvedWidth} pixels`}
+            onDoubleClick={resetSidebarWidth}
+          />
         </Sidebar>
         {children}
         <BackgroundThreadAnnouncer />
-        <SidebarControl />
+        <SidebarControl compact={compact} />
         {isElectron ? <HistorySwipeNavigation /> : null}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>

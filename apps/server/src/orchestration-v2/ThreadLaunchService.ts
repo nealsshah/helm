@@ -78,6 +78,9 @@ export interface ThreadLaunchInitialMessage {
 }
 
 export interface ThreadLaunchInput {
+  readonly registerFirstMate?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<void, import("@t3tools/contracts").WorkspaceError>;
   readonly commandId: CommandId;
   readonly threadId?: ThreadId;
   readonly reuseExistingThread?: boolean;
@@ -973,6 +976,11 @@ const make = Effect.gen(function* () {
           const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
           const messageReceipt = yield* readReceipt(input, messageCommandId);
           messageWasAlreadyAccepted = Option.isSome(messageReceipt);
+          if (input.registerFirstMate && !messageWasAlreadyAccepted) {
+            yield* input
+              .registerFirstMate(threadId)
+              .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+          }
           const messageId =
             input.initialMessage.messageId ??
             (yield* ids.allocate

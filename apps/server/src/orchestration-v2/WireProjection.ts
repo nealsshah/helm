@@ -10,6 +10,8 @@ import type {
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import { isWorkspaceCheckpointToolName, WorkspaceCheckpoint } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   dedupeSubagentBodies,
   dedupeTurnItemBodies,
@@ -64,7 +66,9 @@ export function boundFileChangeForStorage(item: OrchestrationV2TurnItem): Orches
     : bounded;
 }
 
-function summarizeDynamicValue(value: unknown): unknown {
+const isCheckpoint = Schema.is(WorkspaceCheckpoint);
+
+function summarizeDynamicValue(value: unknown, toolName: string | null): unknown {
   let serialized: string;
   try {
     if (typeof value === "string" && value.length > MAX_DYNAMIC_VALUE_BYTES) {
@@ -80,6 +84,15 @@ function summarizeDynamicValue(value: unknown): unknown {
     serialized = "Unserializable tool output";
   }
 
+  if (isWorkspaceCheckpointToolName(toolName) && isCheckpoint(value)) {
+    return {
+      stage: value.stage,
+      needsAttention: value.needsAttention,
+      publishReply: value.publishReply,
+      summary: truncateDetail(value.summary, MAX_DYNAMIC_VALUE_BYTES / 2),
+      truncated: true,
+    };
+  }
   // Splitting and normalizing every line can allocate far more than the input.
   const start = /\S/u.exec(serialized)?.index;
   let firstLine = start === undefined ? "Large tool output" : "";
@@ -193,7 +206,7 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
       const output = compactDynamicToolOutput(rawOutput);
       return {
         ...projected,
-        input: summarizeDynamicValue(item.input),
+        input: summarizeDynamicValue(item.input, item.toolName),
         ...(output === undefined ? {} : { output }),
         ...(hasDynamicValue(rawOutput) ? { outputOmitted: true } : {}),
       };

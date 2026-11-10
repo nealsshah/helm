@@ -107,6 +107,20 @@
               chrome: "oklch(0.245899 0.019144 42.044)",
             },
           },
+          "helm-graphite": {
+            light: {
+              background: "#ffffff",
+              foreground: "#242424",
+              accent: "#353535",
+              chrome: "#f2f2f2",
+            },
+            dark: {
+              background: "#191919",
+              foreground: "#f1f1f1",
+              accent: "#e4e4e4",
+              chrome: "#121212",
+            },
+          },
           iris: {
             light: {
               background: "oklch(0.976531 0.003855 303.226)",
@@ -132,11 +146,7 @@
           "system",
           "light",
           "dark",
-          "t3-chat",
-          "grove",
-          "ocean",
-          "ember",
-          "iris",
+          ...Object.keys(BUILT_IN_THEME_PALETTES),
           "t3-chat-dark",
           "t3-grove",
           "t3-ocean",

@@ -41,9 +41,9 @@ export function SessionTabs({
           <div
             key={id}
             className={cn(
-              "flex shrink-0 items-center rounded-md",
+              "flex shrink-0 items-center rounded-lg motion-safe:transition-colors",
               active
-                ? "bg-background text-foreground shadow-xs ring-1 ring-inset ring-border/75"
+                ? "bg-background text-foreground shadow-xs ring-1 ring-inset ring-border/50"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
@@ -83,7 +83,7 @@ export function SessionTabs({
                         [next]?.focus();
                       onSelect(tabs[next]!.id);
                     }}
-                    className="flex h-8 max-w-44 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="flex h-8 max-w-44 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   />
                 }
               >

@@ -1,28 +1,143 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, WorkItem, WorkspaceCommand } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { SessionTabs } from "./SessionTabs";
-import { ExternalLinkIcon, XIcon } from "lucide-react";
-import * as Schema from "effect/Schema";
-import { type PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
+import {
+  ArrowLeftIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  LayersIcon,
+  LinkIcon,
+  XIcon,
+} from "lucide-react";
+import { useEffect, useEffectEvent, useState } from "react";
+import { ComposerHandleContext } from "../../composerHandleContext";
 import { serverEnvironment } from "../../state/server";
 import ChatView from "../ChatView";
-import { ComposerHandleContext } from "../../composerHandleContext";
 import { BackgroundThreadContext } from "../chat/backgroundThread";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { field, useDelivery } from "./WorkspaceForms";
 import {
-  itemHasThread,
-  outstandingDependencies,
-  runtimeLabel,
-  safeArtifactUrl,
-  sourceTime,
-  stageLabel,
-  stages,
-} from "./workspaceModel";
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
+import { SessionProjectPicker } from "./SessionProjectPicker";
+import { useDelivery } from "./WorkspaceForms";
+import { runtimeLabel, safeArtifactUrl, stageLabel } from "./workspaceModel";
 import { useWorkspaceCommand, type WorkspaceState } from "./workspaceState";
+import type { PanelTarget } from "./workspaceTab";
+
+function TaskTitle({
+  environmentId,
+  itemId,
+  title,
+  connected,
+}: {
+  environmentId: EnvironmentId;
+  itemId: string;
+  title: string;
+  connected: boolean;
+}) {
+  const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
+  const run = useWorkspaceCommand();
+  const { submit, busy, error } = useDelivery();
+  const [editing, setEditing] = useState(false);
+  if (!editing || !connected || !allowed) {
+    return (
+      <h2 className="truncate text-sm font-semibold">
+        {connected && allowed ? (
+          <button
+            type="button"
+            className="block max-w-full cursor-text truncate text-left"
+            aria-description="Double-click to rename task"
+            onDoubleClick={() => setEditing(true)}
+            onClick={(event) => {
+              if (event.detail === 0) setEditing(true);
+            }}
+          >
+            {title}
+          </button>
+        ) : (
+          title
+        )}
+      </h2>
+    );
+  }
+  const save = (value: string) => {
+    const nextTitle = value.trim();
+    if (!nextTitle || nextTitle === title) {
+      setEditing(false);
+      return;
+    }
+    void submit(async () => {
+      await run(environmentId, { type: "update", itemId, title: nextTitle });
+      setEditing(false);
+    });
+  };
+  return (
+    <>
+      <input
+        aria-label="Task title"
+        className="w-full rounded-sm bg-background text-sm font-semibold ring-1 ring-ring"
+        defaultValue={title}
+        autoFocus
+        onFocus={(event) => event.currentTarget.select()}
+        readOnly={busy}
+        onBlur={(event) => save(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || busy) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.value = title;
+            setEditing(false);
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            save(event.currentTarget.value);
+          }
+        }}
+      />
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+function PrepareSecondMate({
+  environmentId,
+  itemId,
+}: {
+  environmentId: EnvironmentId;
+  itemId: string;
+}) {
+  const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
+  const run = useWorkspaceCommand();
+  const { submit, busy, error } = useDelivery();
+  const open = () => submit(() => run(environmentId, { type: "ensureSecondMate", itemId }));
+  const onOpen = useEffectEvent(open);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Opening a task provisions its persisted coordinator on the owning server.
+  useEffect(() => {
+    if (allowed) void onOpen();
+  }, [allowed]);
+  return (
+    <div className="m-auto grid max-w-sm justify-items-center gap-2 p-4 text-center text-sm text-muted-foreground">
+      <p role={error ? "alert" : "status"}>
+        {!allowed
+          ? "Workspace access is required to start this Second Mate."
+          : error || "Opening Second Mate…"}
+      </p>
+      {allowed && error && (
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => void open()}>
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export function WorkPanel({
   state,
@@ -35,30 +150,66 @@ export function WorkPanel({
   select: (target: PanelTarget) => void;
   close: () => void;
 }) {
-  const { environmentId, itemId, threadId } = target;
+  const { environmentId, itemId } = target;
   const navigate = useNavigate();
   const host = state.hosts.find((entry) => entry.environmentId === environmentId);
   const item = host?.snapshot?.items.find((entry) => entry.id === itemId);
-  const shell = state.shells.find(
-    (entry) => entry.environmentId === environmentId && entry.id === threadId,
-  );
-  const detached = Boolean(item && !itemHasThread(item, threadId));
-  const nextThread = detached ? item?.primaryThreadId : threadId;
-  const role = target.global
-    ? "Orchestrator"
-    : item?.primaryThreadId === threadId
-      ? "Work conversation"
-      : (item?.sessions.find((entry) => entry.threadId === threadId)?.role ?? "Session");
-  const [detailsFor, setDetailsFor] = useState<string | null>(null);
-  const itemKey = JSON.stringify([environmentId, itemId]);
-  const showDetails = detailsFor === itemKey;
-  const conversations = item
+  const hasLead = Boolean(item && (host?.secondMate || item.secondMateThreadId));
+  const workers = item
     ? [
-        { threadId: item.primaryThreadId, role: "Primary" },
-        ...item.sessions.filter((session) => session.threadId !== item.primaryThreadId),
+        ...(item.primaryThreadId !== item.secondMateThreadId
+          ? [{ threadId: item.primaryThreadId, role: "Worker" }]
+          : []),
+        ...item.sessions.filter(
+          (session) =>
+            session.threadId !== item.primaryThreadId &&
+            session.threadId !== item.secondMateThreadId,
+        ),
       ]
     : [];
-  const destination = `${role} · ${shell?.title ?? threadId}`;
+  const worker = workers.find((session) => session.threadId === target.threadId);
+  const openLead = hasLead && (!target.worker || target.threadId === item?.secondMateThreadId);
+  const detached = Boolean(
+    item &&
+    !worker &&
+    !openLead &&
+    !state.requests.some(
+      (request) =>
+        request.environmentId === environmentId &&
+        request.itemId === itemId &&
+        request.threadId === target.threadId,
+    ),
+  );
+  const threadId = openLead
+    ? item?.secondMateThreadId
+    : itemId && !item
+      ? undefined
+      : target.threadId;
+  const shellFor = (id: typeof threadId) =>
+    state.shells.find((entry) => entry.environmentId === environmentId && entry.id === id);
+  const shell = shellFor(threadId);
+  const needsLead = openLead && (!shell || shell.archivedAt != null || shell.deletedAt != null);
+  const destination = target.global
+    ? "First Mate"
+    : openLead
+      ? "Second Mate"
+      : item || target.worker
+        ? "Worker"
+        : undefined;
+  const workerRows = workers.map((session) => {
+    const source = shellFor(session.threadId);
+    const status = runtimeLabel(
+      source,
+      host?.connected ?? false,
+      host?.workerTriage && !!item?.secondMateThreadId,
+    );
+    return { ...session, title: source?.title ?? session.role, status };
+  });
+  const activeWorkers = workerRows.filter((row) => row.status === "Running");
+  const orderedWorkers = [
+    ...activeWorkers,
+    ...workerRows.filter((row) => row.status !== "Running"),
+  ];
   return (
     <aside
       role={target.global ? "tabpanel" : undefined}
@@ -66,128 +217,163 @@ export function WorkPanel({
       className={
         target.global
           ? "flex min-h-0 flex-1 flex-col"
-          : "flex min-h-0 min-w-0 flex-col border-l border-border bg-background"
+          : "flex min-h-0 min-w-0 flex-col bg-background"
       }
     >
       {!target.global && (
-        <div className="flex min-h-12 shrink-0 items-center gap-1.5 border-b border-border/70 px-3 py-2">
+        <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border/70 px-3 py-2">
           <div className="min-w-0 flex-1">
             <p className="truncate text-2xs font-medium text-muted-foreground">
               {item ? stageLabel[item.stage] : "Session"}
               {state.hosts.length > 1 && ` · ${host?.label ?? environmentId}`}
             </p>
-            <h2 className="truncate text-sm font-semibold">
-              {item?.title ?? shell?.title ?? threadId}
-            </h2>
+            {item ? (
+              <TaskTitle
+                key={JSON.stringify([environmentId, item.id])}
+                environmentId={environmentId}
+                itemId={item.id}
+                title={item.title}
+                connected={host?.connected === true}
+              />
+            ) : (
+              <h2 className="truncate text-sm font-semibold">{shell?.title ?? "Task"}</h2>
+            )}
           </div>
-          {item && (
+          {shell && (
+            <SessionProjectPicker
+              environmentId={environmentId}
+              projectId={shell.projectId}
+              threadId={shell.id}
+            />
+          )}
+          {item && hasLead && !openLead && (
             <Button
+              variant="ghost"
               size="compact"
-              variant={showDetails ? "secondary" : "ghost"}
-              aria-expanded={showDetails}
-              onClick={() => setDetailsFor(showDetails ? null : itemKey)}
+              onClick={() =>
+                select({
+                  environmentId,
+                  itemId,
+                  threadId: item.secondMateThreadId ?? item.primaryThreadId,
+                })
+              }
             >
-              Details
+              <ArrowLeftIcon /> Second Mate
             </Button>
           )}
-          <Link
-            to="/$environmentId/$threadId"
-            params={{ environmentId, threadId }}
-            className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
-            aria-label="Open full session"
-          >
-            <ExternalLinkIcon size={16} />
-          </Link>
+          {item && workers.length > 0 && (hasLead || workers.length > 1) && (
+            <Menu>
+              <MenuTrigger
+                render={<Button variant="ghost" size="compact" />}
+                aria-label={`Workers (${workers.length})${activeWorkers.length ? `, ${activeWorkers.length} working` : ""}`}
+              >
+                <LayersIcon aria-hidden="true" />
+                <span>{workers.length}</span>
+                {activeWorkers.length > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="size-1.5 rounded-full bg-working motion-safe:animate-pulse"
+                  />
+                )}
+              </MenuTrigger>
+              <MenuPopup align="end">
+                {openLead && (
+                  <>
+                    <MenuCheckboxItem
+                      closeOnClick
+                      checked={target.showWorkerActivity === true}
+                      onCheckedChange={(checked) =>
+                        select({ ...target, showWorkerActivity: checked })
+                      }
+                    >
+                      Show worker activity
+                    </MenuCheckboxItem>
+                    <MenuSeparator />
+                  </>
+                )}
+                {orderedWorkers.map((session) => {
+                  const working = session.status === "Running";
+                  return (
+                    <MenuItem
+                      key={session.threadId}
+                      onClick={() =>
+                        select({ environmentId, itemId, threadId: session.threadId, worker: true })
+                      }
+                    >
+                      <span className={working ? "min-w-0" : "min-w-0 text-muted-foreground"}>
+                        <span className="block max-w-72 truncate">{session.title}</span>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          {working && (
+                            <>
+                              <span
+                                aria-hidden="true"
+                                className="size-1.5 shrink-0 rounded-full bg-working motion-safe:animate-pulse"
+                              />
+                              <span className="sr-only">Working</span>
+                            </>
+                          )}
+                          {session.role}
+                          {!working && session.status !== "Idle" && ` · ${session.status}`}
+                        </span>
+                      </span>
+                      {session.threadId === threadId && <CheckIcon className="ml-auto" />}
+                    </MenuItem>
+                  );
+                })}
+              </MenuPopup>
+            </Menu>
+          )}
+          {item && item.artifacts.length > 0 && (
+            <Menu>
+              <MenuTrigger
+                render={<Button variant="ghost" size="icon-sm" />}
+                aria-label="Task artifacts"
+              >
+                <LinkIcon />
+              </MenuTrigger>
+              <MenuPopup align="end">
+                {item.artifacts.map((artifact) => {
+                  const url = safeArtifactUrl(artifact.url);
+                  return url ? (
+                    <MenuItem
+                      key={artifact.url}
+                      render={<a href={url} target="_blank" rel="noreferrer" />}
+                    >
+                      {artifact.label}
+                    </MenuItem>
+                  ) : (
+                    <MenuItem key={artifact.url} disabled>
+                      {artifact.label} · {artifact.url}
+                    </MenuItem>
+                  );
+                })}
+              </MenuPopup>
+            </Menu>
+          )}
+          {threadId && !needsLead && (
+            <Link
+              to="/$environmentId/$threadId"
+              params={{ environmentId, threadId }}
+              className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
+              aria-label="Open full session"
+            >
+              <ExternalLinkIcon size={16} />
+            </Link>
+          )}
           <Button variant="ghost" size="icon-sm" aria-label="Close work panel" onClick={close}>
             <XIcon />
           </Button>
         </div>
       )}
-      <div className="max-h-[45%] shrink-0 overflow-auto">
-        {item && showDetails && (
-          <section
-            aria-label="Ticket details"
-            className="border-b border-border/70 px-4 py-3 text-sm"
-          >
-            <div className="grid gap-2">
-              <p className="whitespace-pre-wrap text-muted-foreground">
-                {item.scope || "No scope recorded."}
-              </p>
-              {outstandingDependencies(item, host?.snapshot?.items ?? []).map((dep) => (
-                <p key={dep.itemId}>
-                  Waiting on {dep.title} · {dep.owner}
-                </p>
-              ))}
-              {item.decisions.map((decision) => (
-                <p key={JSON.stringify([decision.createdAt, decision.author, decision.text])}>
-                  {decision.text}{" "}
-                  <small className="text-muted-foreground">
-                    {decision.author} · {sourceTime(decision.createdAt)}
-                  </small>
-                </p>
-              ))}
-              {item.artifacts.map((artifact) => {
-                const url = safeArtifactUrl(artifact.url);
-                return (
-                  <p key={artifact.url}>
-                    {url ? (
-                      <a className="underline" href={url} target="_blank" rel="noreferrer">
-                        {artifact.label}
-                      </a>
-                    ) : (
-                      <span>
-                        {artifact.label} · {artifact.url}
-                      </span>
-                    )}
-                  </p>
-                );
-              })}
-              {item.latestReport && (
-                <p className="whitespace-pre-wrap text-muted-foreground">
-                  {item.latestReport.format === "legacy" ? "Legacy update" : "Worker update"} ·{" "}
-                  {state.shells.find(
-                    (s) =>
-                      s.environmentId === environmentId && s.id === item.latestReport?.threadId,
-                  )?.title ?? item.latestReport.threadId}{" "}
-                  · {sourceTime(item.latestReport.reportedAt)}
-                  <br />
-                  {item.latestReport.text}
-                </p>
-              )}
-              <ItemSettings item={item} environmentId={environmentId} state={state} />
-            </div>
-          </section>
-        )}
-      </div>
-      {conversations.length > 1 && (
-        <div className="shrink-0 border-b border-border/70 bg-muted/35 px-2">
-          <SessionTabs
-            label="Work conversations"
-            selected={threadId}
-            onSelect={(id) => select({ environmentId, itemId, threadId: id })}
-            tabs={conversations.map((session) => {
-              const source = state.shells.find(
-                (entry) => entry.environmentId === environmentId && entry.id === session.threadId,
-              );
-              return {
-                id: session.threadId,
-                title: source?.title ?? session.role,
-                description: `${session.role} · ${source?.title ?? session.threadId} · ${runtimeLabel(source, host?.connected ?? false)}`,
-              };
-            })}
-          />
-        </div>
-      )}
       <div
-        role={conversations.length > 1 ? "tabpanel" : undefined}
-        aria-label={conversations.length > 1 ? destination : undefined}
         data-side-chat-pane
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
-        {shell && !detached ? (
+        {threadId && shell && !detached && !needsLead ? (
           <BackgroundThreadContext value>
             <ComposerHandleContext value={null}>
               <ChatView
+                key={JSON.stringify([environmentId, threadId])}
                 environmentId={environmentId}
                 threadId={threadId}
                 routeKind="server"
@@ -198,131 +384,31 @@ export function WorkPanel({
                   });
                 }}
                 reserveTitleBarControlInset={false}
+                showWorkerActivity={openLead && target.showWorkerActivity === true}
                 workspaceDestination={{ label: destination }}
               />
             </ComposerHandleContext>
           </BackgroundThreadContext>
+        ) : needsLead && item && host?.connected && host.secondMate ? (
+          <PrepareSecondMate
+            key={JSON.stringify([environmentId, item.id])}
+            environmentId={environmentId}
+            itemId={item.id}
+          />
         ) : (
-          <div className="p-4 text-sm text-muted-foreground">
-            {detached && <p className="mb-2">This worker is no longer linked to the work item.</p>}
-            {!nextThread || (!shell && !detached) ? (
-              "Session unavailable. Its workspace records are retained here."
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  select({
-                    environmentId,
-                    itemId,
-                    threadId: nextThread,
-                    ...(target.global ? { global: true } : {}),
-                  })
-                }
-              >
-                Open conversation
-              </Button>
-            )}
-          </div>
+          <p role="status" className="p-4 text-sm text-muted-foreground">
+            {!host?.connected
+              ? "Environment disconnected."
+              : itemId && !host.snapshot
+                ? "Loading task…"
+                : threadId && openLead
+                  ? "Opening Second Mate…"
+                  : detached
+                    ? "This worker is no longer linked to the task."
+                    : "Session unavailable."}
+          </p>
         )}
       </div>
     </aside>
-  );
-}
-
-function ItemSettings({
-  item,
-  environmentId,
-  state,
-}: {
-  item: WorkItem;
-  environmentId: EnvironmentId;
-  state: WorkspaceState;
-}) {
-  const run = useWorkspaceCommand();
-  const allowed = useAtomValue(serverEnvironment.workspaceCommand.permissionAtom(environmentId));
-  const delivery = useDelivery();
-  const draftKey = JSON.stringify([environmentId, item.id]);
-  const [session, setSession] = useWorkspaceTabValue(`worker.${draftKey}`, "", Schema.String);
-  const [role, setRole] = useWorkspaceTabValue(`role.${draftKey}`, "", Schema.String);
-  const choices = state.shells.filter(
-    (shell) =>
-      shell.environmentId === environmentId &&
-      !shell.archivedAt &&
-      !shell.deletedAt &&
-      !state.items.some(
-        (entry) => entry.environmentId === environmentId && itemHasThread(entry.item, shell.id),
-      ),
-  );
-  const commit = (command: WorkspaceCommand) => delivery.submit(() => run(environmentId, command));
-  return (
-    <fieldset
-      disabled={!allowed || delivery.busy}
-      className="space-y-3 border-t border-border py-2"
-    >
-      <label className="flex items-center gap-2 text-xs">
-        Stage
-        <select
-          value={item.stage}
-          className={field}
-          onChange={(event) => {
-            const stage = stages.find((value) => value === event.target.value);
-            if (stage) void commit({ type: "update", itemId: item.id, stage });
-          }}
-        >
-          {stages.map((stage) => (
-            <option key={stage} value={stage}>
-              {stageLabel[stage]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <form
-        className="flex flex-wrap gap-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const source = choices.find((s) => s.id === session);
-          if (!source || !role.trim()) return;
-          void delivery.submit(async () => {
-            await run(environmentId, {
-              type: "associate",
-              itemId: item.id,
-              threadId: source.id,
-              role: role.trim(),
-            });
-            setSession("");
-            setRole("");
-          });
-        }}
-      >
-        <select
-          aria-label="Worker session"
-          className={field}
-          value={session}
-          onChange={(e) => setSession(e.target.value)}
-        >
-          <option value="">Link worker session</option>
-          {choices.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title}
-            </option>
-          ))}
-        </select>
-        <Input
-          aria-label="Worker role"
-          placeholder="Role"
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-        />
-        <Button type="submit" variant="outline" size="sm" disabled={!session || !role.trim()}>
-          Link session
-        </Button>
-      </form>
-      {delivery.error && (
-        <p role="alert" className="text-destructive">
-          {delivery.error}
-        </p>
-      )}
-    </fieldset>
   );
 }

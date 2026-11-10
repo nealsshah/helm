@@ -17,6 +17,8 @@ import {
 import { isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import {
   AuthOrchestrationOperateScope,
+  CommandId,
+  MessageId,
   DEFAULT_MODEL,
   type EnvironmentId,
   type ModelSelection,
@@ -178,6 +180,7 @@ interface ComposerSendInput {
   readonly activeProposedPlan: LatestProposedPlanState | null;
   readonly activeMessageCount: number;
   readonly isServerThread: boolean;
+  readonly firstMateDraft: boolean;
   readonly isLocalDraftThread: boolean;
   readonly isGitRepo: boolean;
   readonly phase: SessionPhase;
@@ -276,6 +279,7 @@ export function useComposerSend(input: ComposerSendInput) {
     activeProposedPlan,
     activeMessageCount,
     isServerThread,
+    firstMateDraft,
     isLocalDraftThread,
     isGitRepo,
     phase,
@@ -405,13 +409,14 @@ export function useComposerSend(input: ComposerSendInput) {
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
-    submissionIntent: ComposerSubmissionIntent = "foreground",
+    requestedIntent: ComposerSubmissionIntent = "foreground",
     directAnnotation?: {
       annotation: PreviewAnnotationPayload;
       image: ComposerImageAttachment | null;
     },
   ) => {
     e?.preventDefault();
+    const submissionIntent = firstMateDraft ? "foreground" : requestedIntent;
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
     const promptAtSend = promptRef.current;
@@ -904,7 +909,8 @@ export function useComposerSend(input: ComposerSendInput) {
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );
-    const messageIdForSend = newMessageId();
+    const firstMateLaunch = firstMateDraft && isLocalDraftThread;
+    const messageIdForSend = firstMateLaunch ? MessageId.make(threadIdForSend) : newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
@@ -1365,6 +1371,12 @@ export function useComposerSend(input: ComposerSendInput) {
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,
           ...(bootstrap ? { bootstrap } : {}),
+          ...(firstMateLaunch
+            ? {
+                workspaceRole: "firstMate",
+                commandId: CommandId.make(`first-mate:${threadIdForSend}`),
+              }
+            : {}),
           createdAt: messageCreatedAt,
         },
       });

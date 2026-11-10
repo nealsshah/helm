@@ -1,3 +1,4 @@
+import "~/index.css";
 import { EnvironmentId, ThreadId, type WorkItem, type WorkspaceRequest } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
@@ -9,13 +10,17 @@ import type { WorkspaceState } from "./workspaceState";
 import { VisualWorkspace } from "./VisualWorkspace";
 
 let snapshot: WorkspaceState;
+const { runWorkspace } = vi.hoisted(() => ({ runWorkspace: vi.fn(async () => {}) }));
 vi.mock("./workspaceState", () => ({
   useWorkspaceState: () => snapshot,
-  useWorkspaceCommand: () => vi.fn(),
+  useWorkspaceCommand: () => runWorkspace,
 }));
+vi.mock("../../state/entities", () => ({ useProject: () => null, useThreadShell: () => null }));
+vi.mock("../ProjectFavicon", () => ({ ProjectFavicon: () => null }));
 vi.mock("../../state/server", () => ({
   serverEnvironment: { workspaceCommand: { permissionAtom: () => Atom.make(true) } },
 }));
+vi.mock("./SessionProjectPicker", () => ({ SessionProjectPicker: () => null }));
 vi.mock("./OrchestratorPanel", () => ({ OrchestratorPanel: () => null }));
 vi.mock("../ChatView", () => ({
   default: ({ threadId }: { threadId: string }) => <p>Session {threadId}</p>,
@@ -43,6 +48,7 @@ function work(title: string, stage: WorkItem["stage"]): WorkItem {
 }
 
 it("leaves a discussion selected when another work item requests attention and returns after inspecting it", async () => {
+  runWorkspace.mockReset().mockRejectedValueOnce(new Error("Task host unavailable"));
   const previous = { width: window.innerWidth, height: window.innerHeight };
   await page.viewport(1440, 900);
   await using _viewport = {
@@ -55,12 +61,19 @@ it("leaves a discussion selected when another work item requests attention and r
   const items = [shape, build, qa, review];
   const worker = ThreadId.make("verification-worker");
   const qaWithWorker = { ...qa, sessions: [{ threadId: worker, role: "QA worker" }] };
-  const shapedBuild = { ...build, dependencies: [{ itemId: shape.id, owner: "Design" }] };
+  const shapedBuild = {
+    ...build,
+    secondMateThreadId: ThreadId.make("implement-lead"),
+    dependencies: [{ itemId: shape.id, owner: "Design" }],
+  };
   const workItems = [shape, shapedBuild, qaWithWorker, review];
   const host = {
     environmentId: env,
     label: "Local",
     connected: true,
+    secondMate: true,
+    workerTriage: true,
+    retirement: true,
     error: null,
     snapshot: { orchestratorThreadIds: [], items: workItems, requests: [] },
   };
@@ -72,6 +85,11 @@ it("leaves a discussion selected when another work item requests attention and r
       ...items.map((item) =>
         makeThreadFixture({ id: item.primaryThreadId, environmentId: env, title: item.title }),
       ),
+      makeThreadFixture({
+        id: shapedBuild.secondMateThreadId,
+        environmentId: env,
+        title: "Implement lead",
+      }),
       makeThreadFixture({ id: worker, environmentId: env, title: "Verification worker" }),
     ],
   };
@@ -81,12 +99,29 @@ it("leaves a discussion selected when another work item requests attention and r
     </SidebarProvider>
   );
   await using screen = await render(ui(), { router: "/workspace" });
+  const header = screen
+    .getByRole("heading", { name: "Workspace", exact: true })
+    .element()
+    .closest("header")!;
+  expect(getComputedStyle(header).getPropertyValue("-webkit-app-region")).toBe("drag");
+  const firstMateButton = screen.getByRole("button", { name: "First Mate", exact: true }).element();
+  expect(getComputedStyle(firstMateButton).getPropertyValue("-webkit-app-region")).toBe("no-drag");
   const board = screen.getByRole("region", { name: "Workspace overview" });
   await expect.element(board.getByRole("button", { name: /^Needs you/ })).not.toBeInTheDocument();
   await board.getByRole("region", { name: "Planning" }).getByRole("button").click();
-  await expect.element(screen.getByText("Session shape", { exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Task host unavailable");
+  await screen.getByRole("button", { name: "Try again" }).click();
+  await expect.element(screen.getByText("Opening Second Mate…")).toBeVisible();
   await expect.element(board.getByText("Waiting on Shape · Design")).toBeVisible();
   await board.getByRole("region", { name: "Building" }).getByRole("button").click();
+  const building = board.getByRole("region", { name: "Building" }).getByRole("button");
+  await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /Implement/ })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: "Workers (1)" }).click();
+  await page.getByRole("menuitem", { name: /Implement/ }).click();
+  await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  await building.click();
+  await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
   const request: WorkspaceRequest = {
     id: "confirm",
     kind: "question",
@@ -131,16 +166,42 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(needsMe.getByText("Verification worker", { exact: true })).toBeVisible();
   await expect.element(qaColumn.getByText("Verify", { exact: true })).not.toBeInTheDocument();
   await expect.element(board.getByText("Waiting on Shape · Design")).not.toBeInTheDocument();
-  await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
   const workerCard = needsMe.getByRole("button", { name: "Verification worker" });
   await workerCard.click();
   await expect
     .element(screen.getByText("Session verification-worker", { exact: true }))
     .toBeVisible();
+  await screen.getByRole("button", { name: "Second Mate" }).click();
+  await expect.element(screen.getByText("Opening Second Mate…")).toBeVisible();
   await screen.getByRole("button", { name: "Close work panel" }).click();
-  await expect.element(screen.getByText("Session implement", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("Session implement-lead", { exact: true })).toBeVisible();
 
   const original = snapshot.requests[0]!;
+  const reply = {
+    ...original,
+    key: "reply",
+    kind: "attention",
+    replyId: "answer-1",
+    itemId: shapedBuild.id,
+    threadId: shapedBuild.secondMateThreadId,
+    prompt: "Second Mate replied",
+  };
+  runWorkspace.mockClear();
+  snapshot = { ...snapshot, requests: [original, reply] };
+  await screen.rerender(ui());
+  const answer = needsMe.getByRole("button", { name: "Implement", exact: true });
+  await expect.element(answer).toBeVisible();
+  expect(runWorkspace).not.toHaveBeenCalled();
+  await answer.click();
+  expect(runWorkspace).toHaveBeenCalledExactlyOnceWith(env, {
+    type: "readReply",
+    itemId: shapedBuild.id,
+    replyId: "answer-1",
+  });
+  await workerCard.click();
+  expect(runWorkspace).toHaveBeenCalledTimes(1);
+
   const primary = {
     ...original,
     key: "primary",
@@ -162,4 +223,56 @@ it("leaves a discussion selected when another work item requests attention and r
   await expect.element(qaColumn.getByText("Verify", { exact: true })).toBeVisible();
   await expect.element(needsMe.getByRole("button")).not.toBeInTheDocument();
   await expect.element(screen.getByText("Session verify", { exact: true })).toBeVisible();
+});
+
+it("retires done tasks with a checkmark and asks before retiring an unfinished task", async () => {
+  runWorkspace.mockReset();
+  sessionStorage.removeItem("helm.workspace.selected");
+  const done = work("Finished ticket", "complete");
+  const active = work("Active ticket", "building");
+  const items = [active, done];
+  snapshot = {
+    hosts: [
+      {
+        environmentId: env,
+        label: "Local",
+        connected: true,
+        secondMate: true,
+        workerTriage: true,
+        retirement: true,
+        error: null,
+        snapshot: { orchestratorThreadIds: [], items, requests: [] },
+      },
+    ],
+    items: items.map((item) => ({ environmentId: env, item })),
+    requests: [],
+    shells: [],
+  };
+  await using screen = await render(
+    <SidebarProvider>
+      <VisualWorkspace />
+    </SidebarProvider>,
+    { router: "/workspace" },
+  );
+  await screen.getByRole("button", { name: "Retire Finished ticket" }).click();
+  await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+  expect(runWorkspace).toHaveBeenCalledExactlyOnceWith(env, {
+    type: "retire",
+    itemId: done.id,
+    onlyIfDone: true,
+  });
+  runWorkspace.mockClear();
+
+  const card = screen.getByRole("button", { name: /Active ticket/ });
+  await card.dblClick();
+  await page.getByRole("menuitem", { name: "Retire task" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Retire Active ticket?" });
+  await expect.element(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  expect(runWorkspace).not.toHaveBeenCalled();
+
+  await card.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Retire task" }).click();
+  await dialog.getByRole("button", { name: "Retire task" }).click();
+  expect(runWorkspace).toHaveBeenCalledExactlyOnceWith(env, { type: "retire", itemId: active.id });
 });
