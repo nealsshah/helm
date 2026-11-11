@@ -37,7 +37,7 @@ import { WorkspaceSidePane } from "./WorkspaceSidePane";
 import { WorkPanel } from "./WorkPanel";
 import { PanelTarget, useWorkspaceTabValue } from "./workspaceTab";
 import * as Schema from "effect/Schema";
-import { field, useDelivery } from "./WorkspaceForms";
+import { useDelivery } from "./WorkspaceForms";
 import {
   itemHasThread,
   outstandingDependencies,
@@ -96,7 +96,6 @@ function WorkCard({
   dependencies,
   workerTriage,
   connected,
-  host,
   selected,
   onClick,
   onRetire,
@@ -107,7 +106,6 @@ function WorkCard({
   dependencies: ReturnType<typeof outstandingDependencies>;
   workerTriage: boolean;
   connected: boolean;
-  host: string | undefined;
   selected: boolean;
   onClick: () => void;
   onRetire: (entry: BoardItem) => void;
@@ -148,7 +146,9 @@ function WorkCard({
     >
       {status.kind === "working" && (
         <span aria-hidden="true" className="workspace-border-beam">
-          <span />
+          <span className="workspace-border-beam-mask">
+            <span />
+          </span>
         </span>
       )}
       <CardTitle
@@ -188,7 +188,6 @@ function WorkCard({
           ) : null}
           {status.label}
         </span>
-        {host && <span className="truncate">{host}</span>}
         {time && <time dateTime={time}>{sourceTime(time)}</time>}
       </span>
     </TaskCardButton>
@@ -215,32 +214,18 @@ export function VisualWorkspace() {
       ? null
       : storedTarget;
   const [showOrchestrator, setShowOrchestrator] = useState(false);
-  const [storedEnvironment, setEnvironment] = useWorkspaceTabValue(
-    "environment",
-    "",
-    Schema.String,
-  );
   const [returnTo, setReturnTo] = useWorkspaceTabValue("return-to", null, Target);
-  const environment = state.hosts.some((host) => host.environmentId === storedEnvironment)
-    ? storedEnvironment
-    : "";
-  const visibleItems = state.items.filter(
-    (entry) => !environment || entry.environmentId === environment,
-  );
-  const requests = state.requests.filter(
-    (entry) => !environment || entry.environmentId === environment,
-  );
   const queue = new Map<string, QueueEntry>();
   const waitingItems = new Set<string>();
-  for (const entry of requests) {
+  for (const entry of state.requests) {
     const key = JSON.stringify([entry.environmentId, entry.threadId]);
     if (!queue.has(key) || (queue.get(key)?.replyId && !entry.replyId)) queue.set(key, entry);
     if (entry.itemId) waitingItems.add(JSON.stringify([entry.environmentId, entry.itemId]));
   }
-  const cards = visibleItems.filter(
+  const cards = state.items.filter(
     ({ environmentId, item }) => !waitingItems.has(JSON.stringify([environmentId, item.id])),
   );
-  const hosts = state.hosts.filter((host) => !environment || environment === host.environmentId);
+  const hosts = state.hosts;
   const orchestratorHost =
     (!showOrchestrator && target?.global
       ? state.hosts.find((host) => host.environmentId === target.environmentId)
@@ -358,27 +343,12 @@ export function VisualWorkspace() {
                   {queue.size}
                 </span>
               </h2>
-              {state.hosts.length > 1 && (
-                <select
-                  aria-label="Filter environments"
-                  className={field}
-                  value={environment}
-                  onChange={(e) => setEnvironment(e.target.value)}
-                >
-                  <option value="">All environments</option>
-                  {state.hosts.map((host) => (
-                    <option key={host.environmentId} value={host.environmentId}>
-                      {host.label}
-                    </option>
-                  ))}
-                </select>
-              )}
             </div>
             {queue.size > 0 && (
               <ul className="flex min-h-0 snap-x snap-proximity items-stretch gap-3 overflow-x-auto overscroll-x-contain px-5 pb-3 scroll-px-5">
                 {Array.from(queue, ([key, first]) => {
                   const { environmentId, itemId, threadId } = first;
-                  const linked = visibleItems.find(
+                  const linked = state.items.find(
                     (entry) => entry.environmentId === environmentId && entry.item.id === itemId,
                   );
                   const session = state.shells.find(
@@ -389,7 +359,6 @@ export function VisualWorkspace() {
                     ? linked.item.title
                     : (session?.title ?? linked?.item.title ?? threadId);
                   const host = hosts.find((host) => host.environmentId === environmentId);
-                  const hostLabel = hosts.length > 1 ? host?.label : null;
                   const viewingLead =
                     linked && !target?.worker && usesSecondMate(linked.item, host?.secondMate);
                   const viewingRequest =
@@ -425,7 +394,6 @@ export function VisualWorkspace() {
                           {linked ? stageLabel[linked.item.stage] : "Session"}
                           {isOwner && (linked.item.directWorker ? " · Worker" : " · Second Mate")}
                           {linked && linked.item.title !== title && ` · ${linked.item.title}`}
-                          {hostLabel && ` · ${hostLabel}`}
                         </span>
                       </TaskCardButton>
                     </li>
@@ -483,7 +451,6 @@ export function VisualWorkspace() {
                           key={JSON.stringify([environmentId, item.id])}
                           entry={entry}
                           dependencies={outstandingDependencies(item, host?.snapshot?.items ?? [])}
-                          host={hosts.length > 1 ? (host?.label ?? environmentId) : undefined}
                           workerTriage={Boolean(host?.workerTriage && item.secondMateThreadId)}
                           connected={host?.connected ?? false}
                           sessions={state.shells.filter(

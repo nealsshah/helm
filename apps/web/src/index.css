@@ -2583,6 +2583,13 @@ code {
   position: absolute;
   inset: -1px;
   z-index: 1;
+  overflow: clip;
+  border-radius: inherit;
+}
+
+.workspace-border-beam-mask {
+  position: absolute;
+  inset: 0;
   border: 1.5px solid transparent;
   border-radius: inherit;
   mask:
@@ -2591,7 +2598,7 @@ code {
   mask-composite: exclude;
 }
 
-.workspace-border-beam > span {
+.workspace-border-beam-mask > span {
   display: none;
   position: absolute;
   width: 220px;
@@ -2603,9 +2610,9 @@ code {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .workspace-border-beam > span {
+  .workspace-border-beam-mask > span {
     display: block;
-    animation: workspace-border-beam 3s linear infinite;
+    animation: workspace-border-beam 6s linear infinite;
   }
 }
 
@@ -2616,7 +2623,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workspace-border-beam {
+  .workspace-border-beam-mask {
     border-color: color-mix(in oklab, var(--color-working) 60%, transparent);
   }
 }
