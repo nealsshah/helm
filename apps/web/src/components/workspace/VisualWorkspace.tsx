@@ -139,15 +139,18 @@ function WorkCard({
       aria-pressed={selected}
       onOpen={onClick}
       className={cn(
-        "grid w-full min-w-0 cursor-pointer gap-1.5 rounded-xl border px-3 py-2.5 text-left motion-safe:transition-[border-color,background-color,box-shadow] motion-safe:duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        status.kind === "working"
-          ? "border-working/25 bg-working/6 hover:border-working/40 hover:bg-working/9"
-          : muted
-            ? "border-border/35 bg-muted/25 text-muted-foreground hover:border-border/60 hover:bg-muted/35 [&_[role=img]]:grayscale"
-            : "border-border/50 bg-card hover:border-foreground/20 hover:shadow-xs",
-        selected && "border-foreground/25 ring-1 ring-inset ring-foreground/8",
+        "relative isolate grid w-full min-w-0 cursor-pointer gap-1.5 rounded-xl border px-3 py-2.5 text-left motion-safe:transition-[border-color,background-color,box-shadow] motion-safe:duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        muted
+          ? "border-border/35 bg-muted/25 text-muted-foreground hover:border-border/60 hover:bg-muted/35 [&_[role=img]]:grayscale"
+          : "border-border/50 bg-card hover:border-foreground/20 hover:shadow-xs",
+        selected && "border-foreground/60 bg-foreground/5 ring-2 ring-inset ring-foreground/35",
       )}
     >
+      {status.kind === "working" && (
+        <span aria-hidden="true" className="workspace-border-beam">
+          <span />
+        </span>
+      )}
       <CardTitle
         title={item.title}
         session={sessions.find((session) => session.id === item.secondMateThreadId) ?? primary}
@@ -166,21 +169,15 @@ function WorkCard({
         <span
           className={cn(
             "inline-flex items-center gap-1.5",
-            status.kind === "working" && "font-medium text-working",
+            status.kind === "working" && "font-medium",
           )}
         >
-          {status.kind === "working" ? (
-            <span aria-hidden="true" className="workspace-working-wave">
-              <span />
-              <span />
-              <span />
-            </span>
-          ) : status.kind === "paused" ? (
+          {status.kind === "paused" ? (
             <span aria-hidden="true" className="flex h-2.5 w-3 items-center justify-center gap-0.5">
               <span className="h-2 w-0.5 rounded-full bg-current" />
               <span className="h-2 w-0.5 rounded-full bg-current" />
             </span>
-          ) : status.kind !== "done" ? (
+          ) : status.kind !== "done" && status.kind !== "working" ? (
             <span
               aria-hidden="true"
               className={cn(

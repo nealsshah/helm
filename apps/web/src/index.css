@@ -2578,47 +2578,45 @@ code {
   outline-offset: -2px;
 }
 
-.workspace-working-wave {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 13px;
-  height: 12px;
+.workspace-border-beam {
+  pointer-events: none;
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border: 1.5px solid transparent;
+  border-radius: inherit;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
 
-.workspace-working-wave > span {
-  width: 3px;
-  height: 10px;
-  border-radius: 2px;
-  background: currentColor;
-  transform: scaleY(0.45);
-}
-
-.workspace-working-wave > span:nth-child(2) {
-  transform: scaleY(0.9);
-  animation-delay: -0.4s;
-}
-
-.workspace-working-wave > span:nth-child(3) {
-  transform: scaleY(0.6);
-  animation-delay: -0.8s;
+.workspace-border-beam > span {
+  display: none;
+  position: absolute;
+  width: 220px;
+  height: 60px;
+  background: linear-gradient(90deg, transparent 15%, var(--color-working) 85%, #ffdcad);
+  offset-path: rect(0 auto auto 0 round 12px);
+  offset-anchor: 90% 50%;
+  offset-distance: 0%;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .workspace-working-wave > span {
-    animation-name: workspace-working-wave;
-    animation-duration: 1.2s;
-    animation-timing-function: ease-in-out;
-    animation-iteration-count: infinite;
+  .workspace-border-beam > span {
+    display: block;
+    animation: workspace-border-beam 3s linear infinite;
   }
 }
 
-@keyframes workspace-working-wave {
-  0%,
-  100% {
-    transform: scaleY(0.35);
+@keyframes workspace-border-beam {
+  to {
+    offset-distance: 100%;
   }
-  50% {
-    transform: scaleY(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-border-beam {
+    border-color: color-mix(in oklab, var(--color-working) 60%, transparent);
   }
 }
