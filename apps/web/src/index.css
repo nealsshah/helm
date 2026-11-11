@@ -2601,11 +2601,15 @@ code {
 .workspace-border-beam-mask > span {
   display: none;
   position: absolute;
-  width: 150px;
-  aspect-ratio: 1;
-  background: linear-gradient(to left, var(--color-working), #ffbc76, transparent);
-  offset-path: rect(0 auto auto 0 round 150px);
-  offset-distance: 0%;
+  inset: -100%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 250deg,
+    #ffbc76 300deg,
+    var(--color-working) 335deg,
+    transparent 360deg
+  );
+  transform: rotate(0turn);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2617,7 +2621,7 @@ code {
 
 @keyframes workspace-border-beam {
   to {
-    offset-distance: 100%;
+    transform: rotate(1turn);
   }
 }
 
