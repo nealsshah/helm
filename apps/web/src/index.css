@@ -2577,3 +2577,48 @@ code {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+
+.workspace-working-wave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 13px;
+  height: 12px;
+}
+
+.workspace-working-wave > span {
+  width: 3px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(0.45);
+}
+
+.workspace-working-wave > span:nth-child(2) {
+  transform: scaleY(0.9);
+  animation-delay: -0.4s;
+}
+
+.workspace-working-wave > span:nth-child(3) {
+  transform: scaleY(0.6);
+  animation-delay: -0.8s;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-working-wave > span {
+    animation-name: workspace-working-wave;
+    animation-duration: 1.2s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+}
+
+@keyframes workspace-working-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}

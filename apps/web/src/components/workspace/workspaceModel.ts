@@ -3,6 +3,7 @@ import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import type { PendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
 import {
   WorkspaceStage,
+  workspaceOwnerThreadId,
   type EnvironmentId,
   type ThreadId,
   type WorkItem,
@@ -68,6 +69,97 @@ export function runtimeLabel(
   if (shell.runtime?.status === "queued") return "Queued";
   if (shell.runtime?.status === "waiting") return "Waiting";
   return threadRuntimeIsActive(shell.runtime) ? "Running" : "Idle";
+}
+
+const cardStatuses = {
+  working: { kind: "working", label: "Working" },
+  waiting: { kind: "waiting", label: "Waiting" },
+  needsYou: { kind: "needsYou", label: "Needs you" },
+  paused: { kind: "paused", label: "Paused" },
+  idle: { kind: "idle", label: "Idle" },
+  done: { kind: "done", label: "Done" },
+  disconnected: { kind: "unavailable", label: "Disconnected" },
+  unavailable: { kind: "unavailable", label: "Unavailable" },
+} as const;
+
+export function workspaceCardStatus({
+  item,
+  sessions,
+  connected,
+  workerTriage,
+}: {
+  item: WorkItem;
+  sessions: ReadonlyArray<EnvironmentThreadShell>;
+  connected: boolean;
+  workerTriage: boolean;
+}) {
+  if (!connected) return cardStatuses.disconnected;
+  if (item.stage === "complete") return cardStatuses.done;
+  const available = sessions.filter((session) => !session.archivedAt && !session.deletedAt);
+  if (available.length === 0) return cardStatuses.unavailable;
+  const ownerId = workspaceOwnerThreadId(item);
+  const needsPerson = (session: EnvironmentThreadShell) =>
+    session.hasPendingApprovals ||
+    ((!workerTriage || session.id === ownerId) &&
+      (session.hasPendingUserInput ||
+        session.hasActionableProposedPlan ||
+        (session.runtime?.status === "failed" && !session.limitRecovery?.autoResume)));
+  if (available.some(needsPerson)) return cardStatuses.needsYou;
+  if (
+    available.some(
+      (session) =>
+        session.runtime?.status === "preparing" ||
+        session.runtime?.status === "starting" ||
+        (session.runtime?.status === "running" &&
+          !session.blockedOnThreadWait &&
+          !session.latestRun?.turnEnded),
+    )
+  )
+    return cardStatuses.working;
+  if (
+    available.some(
+      (session) =>
+        session.hasPendingUserInput ||
+        session.hasActionableProposedPlan ||
+        (session.runtime?.status === "failed" && !session.limitRecovery?.autoResume),
+    )
+  )
+    return { ...cardStatuses.waiting, label: "Waiting for Second Mate" };
+  if (available.some((session) => session.limitRecovery?.autoResume)) {
+    return { ...cardStatuses.waiting, label: "Waiting for provider" };
+  }
+  const background = available.flatMap((session) => session.pendingBackgroundTasks);
+  if (background.some((task) => task.kind === "subagent")) {
+    return { ...cardStatuses.waiting, label: "Waiting for workers" };
+  }
+  if (
+    available.some(
+      (session) =>
+        session.runtime?.status === "queued" ||
+        session.runtime?.status === "waiting" ||
+        (session.runtime?.status === "running" &&
+          (session.blockedOnThreadWait || session.latestRun?.turnEnded)) ||
+        session.goal?.status === "active",
+    ) ||
+    background.some((task) => task.awaited || task.kind === "background_task")
+  )
+    return cardStatuses.waiting;
+  if (available.some((session) => session.pullRequests.some((pr) => pr.watch))) {
+    return { ...cardStatuses.waiting, label: "Waiting for PR updates" };
+  }
+  const latest = available.toSorted((a, b) =>
+    (b.latestRun?.requestedAt ?? b.updatedAt).localeCompare(
+      a.latestRun?.requestedAt ?? a.updatedAt,
+    ),
+  )[0];
+  if (
+    available.find((session) => session.id === ownerId)?.goal?.status === "paused" ||
+    latest?.latestRun?.status === "interrupted" ||
+    latest?.latestRun?.status === "cancelled" ||
+    (latest?.latestRun?.status === "queued" && latest.runtime?.status === "idle")
+  )
+    return cardStatuses.paused;
+  return cardStatuses.idle;
 }
 
 export function shellNeedsAttention(shell: EnvironmentThreadShell, triaged: boolean) {
