@@ -2601,11 +2601,10 @@ code {
 .workspace-border-beam-mask > span {
   display: none;
   position: absolute;
-  width: 220px;
-  height: 60px;
-  background: linear-gradient(90deg, transparent 15%, var(--color-working) 85%, #ffdcad);
-  offset-path: rect(0 auto auto 0 round 12px);
-  offset-anchor: 90% 50%;
+  width: 150px;
+  aspect-ratio: 1;
+  background: linear-gradient(to left, var(--color-working), #ffbc76, transparent);
+  offset-path: rect(0 auto auto 0 round 150px);
   offset-distance: 0%;
 }
 

@@ -141,7 +141,7 @@ function WorkCard({
         muted
           ? "border-border/35 bg-muted/25 text-muted-foreground hover:border-border/60 hover:bg-muted/35 [&_[role=img]]:grayscale"
           : "border-border/50 bg-card hover:border-foreground/20 hover:shadow-xs",
-        selected && "border-foreground/60 bg-foreground/5 ring-2 ring-inset ring-foreground/35",
+        selected && "ring-1 ring-workspace-attention/80 ring-offset-1 ring-offset-background",
       )}
     >
       {status.kind === "working" && (
