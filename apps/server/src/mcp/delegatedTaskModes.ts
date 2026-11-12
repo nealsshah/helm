@@ -111,15 +111,12 @@ export function workspaceWorkerTarget(
   target: OrchestratorMcpTarget | undefined,
   remote: boolean,
 ): OrchestratorMcpTarget {
-  const targetsClaude =
-    target?.driverKind === workerDriver || target?.providerInstanceId === workerInstance;
+  if (target?.providerInstanceId || target?.driverKind || target?.model) return target;
   return {
     ...target,
     driverKind: workerDriver,
-    providerInstanceId:
-      (targetsClaude ? target?.providerInstanceId : undefined) ??
-      (remote ? workerInstance : undefined),
+    providerInstanceId: remote ? workerInstance : undefined,
     model: workerModel,
-    options: targetsClaude ? (target?.options ?? []) : [],
+    options: target?.options ?? [],
   };
 }

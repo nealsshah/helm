@@ -3042,7 +3042,13 @@ describe("OrchestratorMcpService provider resolution", () => {
             name: "Second Mate assigns a worker",
             workspaceRole: "secondMate",
             target: {},
-            expected: { instanceId: claudeId, model: "claude-opus-5-5", options: [] },
+            expected: { instanceId: claudeId, model: "claude-sonnet-5-5", options: [] },
+          },
+          {
+            name: "Second Mate explicitly selects Codex",
+            workspaceRole: "secondMate",
+            target: { providerInstanceId: codexInstanceId, model: "gpt-5.4", options: override },
+            expected: { ...inherited, options: [...override, inherited.options[1]] },
           },
           {
             name: "partial override",
@@ -3128,7 +3134,7 @@ describe("OrchestratorMcpService provider resolution", () => {
               providerSnapshot({
                 instanceId: claudeId,
                 driver: ProviderDriverKind.make("claudeAgent"),
-                model: "claude-opus-5-5",
+                model: "claude-sonnet-5-5",
               }),
             ]),
             adapterRegistryLayer([codexInstanceId, peerId, claudeId]),
