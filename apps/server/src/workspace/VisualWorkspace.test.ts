@@ -320,9 +320,8 @@ it.effect("opens one idle Second Mate for an existing task without replacing its
     const records = yield* t3.getThreadRecords(lead, ["runs"], { includeWorkspaceRole: true });
     expect(records.workspaceRole).toBe("secondMate");
     expect(records.thread.modelSelection).toEqual({
-      instanceId: "codex",
-      model: "gpt-6.1-sol",
-      options: [{ id: "reasoningEffort", value: "high" }],
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
     });
     expect(records.runs).toHaveLength(0);
     expect(records.thread.projectId).toBe(projectId);
@@ -1419,7 +1418,7 @@ it.effect(
       const owner = yield* t3.getThreadRecords(threadId, ["messages"]);
       expect(owner.thread.modelSelection).toMatchObject({
         instanceId: "claudeAgent",
-        model: "claude-opus-5-5",
+        model: "claude-sonnet-5-5",
       });
       expect(owner.messages.map((message) => message.text)).toEqual([task.brief]);
       expect(yield* workspaceRoleForThread(sql, threadId)).toBe("directWorker");

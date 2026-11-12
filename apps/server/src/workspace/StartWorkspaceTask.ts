@@ -5,7 +5,7 @@ import {
   ThreadId,
   WorkItem,
   WorkspaceError,
-  WORKSPACE_MATE_MODEL,
+  WORKSPACE_SECOND_MATE_MODEL,
   WORKSPACE_WORKER_MODEL,
   type WorkspaceCommand,
 } from "@t3tools/contracts";
@@ -48,7 +48,7 @@ export const ensureTaskOwnerThread = Effect.fn("VisualWorkspace.ensureTaskOwnerT
       threadId: ownerThreadId,
       projectId,
       title: `${role} · ${title}`,
-      modelSelection: role === "Worker" ? WORKSPACE_WORKER_MODEL : WORKSPACE_MATE_MODEL,
+      modelSelection: role === "Worker" ? WORKSPACE_WORKER_MODEL : WORKSPACE_SECOND_MATE_MODEL,
       runtimeMode: source.runtimeMode,
       interactionMode: "default",
       branch: projectId === source.projectId ? source.branch : null,

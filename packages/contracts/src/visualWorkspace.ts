@@ -5,15 +5,20 @@ import { ThreadId, TrimmedNonEmptyString as Text, IsoDateTime } from "./baseSche
 import { ProviderInstanceId } from "./providerInstance.ts";
 import type { ModelSelection } from "./modelSelection.ts";
 
-export const WORKSPACE_MATE_MODEL = {
+export const WORKSPACE_FIRST_MATE_MODEL = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-6.1-sol",
-  options: [{ id: "reasoningEffort", value: "high" }],
+  options: [{ id: "reasoningEffort", value: "medium" }],
+} satisfies ModelSelection;
+
+export const WORKSPACE_SECOND_MATE_MODEL = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-opus-5-5",
 } satisfies ModelSelection;
 
 export const WORKSPACE_WORKER_MODEL = {
   instanceId: ProviderInstanceId.make("claudeAgent"),
-  model: "claude-opus-5-5",
+  model: "claude-sonnet-5-5",
 } satisfies ModelSelection;
 
 export const WorkspaceRole = Schema.Literals(["firstMate", "secondMate", "worker", "directWorker"]);

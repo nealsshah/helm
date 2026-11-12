@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { WORKSPACE_MATE_MODEL, type ThreadId } from "@t3tools/contracts";
+import { WORKSPACE_FIRST_MATE_MODEL, type ThreadId } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
@@ -110,7 +110,10 @@ export function OrchestratorPanel({
         .defaultRuntimeMode,
     });
     store.applyStickyState(id);
-    store.setModelSelection(id, WORKSPACE_MATE_MODEL, { explicit: true, replaceOptions: true });
+    store.setModelSelection(id, WORKSPACE_FIRST_MATE_MODEL, {
+      explicit: true,
+      replaceOptions: true,
+    });
     open(threadId);
   }
   const empty = Boolean(host.snapshot && !active && supported && !disabled && defaultProject);
