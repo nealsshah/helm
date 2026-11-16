@@ -116,15 +116,6 @@ export function workspaceCardStatus({
     )
   )
     return cardStatuses.working;
-  if (
-    available.some(
-      (session) =>
-        session.hasPendingUserInput ||
-        session.hasActionableProposedPlan ||
-        (session.runtime?.status === "failed" && !session.limitRecovery?.autoResume),
-    )
-  )
-    return { ...cardStatuses.waiting, label: "Waiting for Second Mate" };
   if (available.some((session) => session.limitRecovery?.autoResume)) {
     return { ...cardStatuses.waiting, label: "Waiting for provider" };
   }
