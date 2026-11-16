@@ -3162,6 +3162,12 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  const showSecondMateWorking =
+    privateActivity &&
+    phase === "running" &&
+    !activeThreadShell?.blockedOnThreadWait &&
+    !activeThreadShell?.latestRun?.turnEnded &&
+    attentionNow === null;
   const hasThreadNow =
     attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
   const queuedRunCount = serverProjection
@@ -3186,6 +3192,7 @@ export default function ChatView(props: ChatViewProps) {
   const timelineFooter =
     pendingHandoff === null &&
     !hasThreadNow &&
+    !showSecondMateWorking &&
     threadStatusLine === null &&
     pendingGuestMessageCount === 0 &&
     !hasQueuedTurns ? null : (
@@ -3198,6 +3205,11 @@ export default function ChatView(props: ChatViewProps) {
               providers={providerStatuses}
               pending
             />
+          </div>
+        )}
+        {showSecondMateWorking && (
+          <div role="status" className="chat-content-lane text-sm text-muted-foreground">
+            Second Mate is working…
           </div>
         )}
         <ThreadNow
