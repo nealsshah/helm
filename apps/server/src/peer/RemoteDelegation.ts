@@ -38,6 +38,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
@@ -120,6 +121,7 @@ const make = Effect.gen(function* () {
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const links = yield* PeerLinks.PeerLinks;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
@@ -231,7 +233,18 @@ const make = Effect.gen(function* () {
       const parentNodeId = parentRun.rootNodeId;
       const target = parent.workspaceRole
         ? {
-            ...workspaceWorkerTarget(input.target, true),
+            ...workspaceWorkerTarget(
+              input.target,
+              (yield* settings.getSettings.pipe(
+                Effect.mapError(
+                  () =>
+                    new OrchestratorMcpFailure({
+                      code: "orchestration_error",
+                      message: "Unable to read server settings.",
+                    }),
+                ),
+              )).workspaceWorkerModelSelection,
+            ),
             environmentId: input.target.environmentId,
           }
         : input.target;

@@ -2,6 +2,7 @@ import { flushSync } from "react-dom";
 import { AudioPreview } from "../files/AudioPreview";
 import { cdp, page } from "vite-plus/test/browser";
 import {
+  CheckpointRef,
   ComposerContextId,
   EnvironmentId,
   MessageId,
@@ -1550,4 +1551,49 @@ it("keeps concurrent approvals actionable outside collapsed work and restores se
   await expect
     .element(screen.getByRole("button", { name: "Open the current tab", exact: true }))
     .toBeVisible();
+});
+
+it.each(["", " \n\t"])(
+  "omits a settled empty handoff body while preserving changed files, text=%j",
+  async (text) => {
+    setup();
+    const runId = RunId.make("empty-handoff");
+    await using screen = await renderTimeline(
+      [message(text, { role: "assistant", runId }, "empty-handoff")],
+      {
+        turnDiffSummaries: [
+          {
+            runId,
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("checkpoint-empty-handoff"),
+            status: "ready",
+            files: [{ path: "src/handoff.ts", kind: "modified", additions: 1, deletions: 0 }],
+            assistantMessageId: MessageId.make("empty-handoff"),
+            completedAt: CREATED_AT,
+          },
+        ],
+      },
+    );
+    await expect.element(screen.getByText("1 changed file", { exact: true })).toBeVisible();
+    expect(screen.text()).not.toContain("(empty response)");
+    expect(screen.container.querySelector("[data-thread-find-text]")).toBeNull();
+  },
+);
+
+it("retains an empty streaming assistant slot until text arrives", async () => {
+  setup();
+  const props = baseProps();
+  const renderMessage = (text: string) => (
+    <MessagesTimeline
+      {...props}
+      timelineEntries={[message(text, { role: "assistant", streaming: true })]}
+    />
+  );
+  await using screen = await renderElement(renderMessage(""));
+  await vi.waitFor(() =>
+    expect(screen.container.querySelector("[data-thread-find-text]")).not.toBeNull(),
+  );
+  expect(screen.text()).not.toContain("(empty response)");
+  await screen.rerender(renderMessage("The worker is checking."));
+  await expect.element(screen.getByText("The worker is checking.", { exact: true })).toBeVisible();
 });

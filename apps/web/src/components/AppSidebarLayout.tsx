@@ -1,5 +1,4 @@
-import { SettingsIcon } from "lucide-react";
-import { Button } from "./ui/button";
+import { SidebarAppMenu } from "./sidebar/SidebarAppMenu";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -9,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Link, useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
+import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
 import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -418,15 +417,7 @@ function SidebarControl({ compact }: { compact: boolean }) {
       </Tooltip>
       {!isSidebarVisible && (
         <div className="pointer-events-auto fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] [-webkit-app-region:no-drag]">
-          <Button
-            variant="glass"
-            size="icon-sm"
-            aria-label="Settings"
-            title="Settings"
-            render={<Link to="/settings/general" />}
-          >
-            <SettingsIcon />
-          </Button>
+          <SidebarAppMenu variant="glass" />
         </div>
       )}
     </div>
@@ -492,6 +483,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <SidebarProvider
         className="h-dvh! min-h-0!"
         data-panel-animations={routePanelAnimationsActive ? "true" : "false"}
+        data-sidebar-animations={panelAnimationsActive ? "true" : "false"}
         defaultOpen={false}
         style={sidebarProviderStyle}
       >

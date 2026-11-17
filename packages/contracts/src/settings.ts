@@ -19,6 +19,11 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
+import {
+  WORKSPACE_FIRST_MATE_MODEL,
+  WORKSPACE_SECOND_MATE_MODEL,
+  WORKSPACE_WORKER_MODEL,
+} from "./visualWorkspace.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
@@ -1317,6 +1322,20 @@ export const ServerSettings = Schema.Struct({
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** Clones default to `<addProjectBaseDirectory>/<host>/<owner>/<repo>`, like ghq. */
   ghqCloneLayout: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  workspaceFirstMateModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(Effect.succeed(WORKSPACE_FIRST_MATE_MODEL)),
+  ),
+  workspaceSecondMateModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        ...WORKSPACE_SECOND_MATE_MODEL,
+        options: [{ id: "effort", value: "medium" }],
+      }),
+    ),
+  ),
+  workspaceWorkerModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(Effect.succeed(WORKSPACE_WORKER_MODEL)),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -1678,6 +1697,9 @@ export const ServerSettingsPatch = Schema.Struct({
   worktreeSubmodules: Schema.optionalKey(Schema.NullOr(WorktreeSubmodules)),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
+  workspaceFirstMateModelSelection: Schema.optionalKey(ModelSelection),
+  workspaceSecondMateModelSelection: Schema.optionalKey(ModelSelection),
+  workspaceWorkerModelSelection: Schema.optionalKey(ModelSelection),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),

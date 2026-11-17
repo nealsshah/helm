@@ -1,5 +1,6 @@
 import {
   IsoDateTime,
+  ModelSelection,
   OrchestrationV2RuntimeRequest,
   OrchestrationV2ShellThreadStatus,
   OrchestratorMcpFailure,
@@ -65,6 +66,12 @@ const startTask = Tool.make("t3_workspace_start_task", {
     brief: TrimmedNonEmptyString,
     mode: Schema.optional(Schema.Literals(["managed", "direct"])),
     project: Schema.optional(TrimmedNonEmptyString),
+    modelSelection: Schema.optional(
+      ModelSelection.annotate({
+        description:
+          "Provider instance, model and options for the new task owner, applied before its first turn. Pass the person's explicit model choice here; omit to use the role default. Never create on one provider and switch afterward.",
+      }),
+    ),
   }),
   success: Schema.Union([
     Schema.Struct({

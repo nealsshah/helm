@@ -39,6 +39,12 @@ export const WorkspaceCheckpoint = Schema.Struct({
   stage: WorkspaceStage,
   needsAttention: Schema.Boolean,
   summary: Text,
+  completionEvidence: Schema.optional(
+    Text.annotate({
+      description:
+        "Required when the task owner marks complete. Explain how the overall task goal and all requested deliverables were verified, not just the latest question or turn.",
+    }),
+  ),
   publishReply: Schema.optional(
     Schema.Boolean.annotate({
       description:
@@ -81,6 +87,7 @@ export const WorkItem = Schema.Struct({
   title: Text,
   scope: Schema.String,
   stage: wireStage,
+  completedAt: Schema.optional(IsoDateTime),
   attention: WorkspaceAttention,
   priority: Schema.Int,
   primaryThreadId: ThreadId,

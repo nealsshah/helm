@@ -12,7 +12,7 @@ import { makeThreadFixture } from "../test-fixtures";
 import { AppSidebarLayout } from "./AppSidebarLayout";
 import { THREAD_SIDEBAR_WIDTH_STORAGE_KEY } from "./threadSidebarWidth";
 import Sidebar from "./Sidebar";
-import { SidebarProvider } from "./ui/sidebar";
+import { SidebarProvider, useSidebar } from "./ui/sidebar";
 
 vi.mock("../state/entities", { spy: true });
 vi.mock("../hooks/useHandleNewThread", { spy: true });
@@ -129,6 +129,7 @@ it("remembers an icon rail after dragging and keeps its sessions individually na
     </AppSidebarLayout>
   );
   await using screen = await render(layout());
+  await screen.getByRole("button", { name: "Toggle main sidebar" }).click();
   const divider = screen.getByRole("separator", { name: "Resize Sidebar" });
   const handle = divider.element();
   const pointer = { bubbles: true, cancelable: true, pointerId: 1, button: 0 };
@@ -138,6 +139,7 @@ it("remembers an icon rail after dragging and keeps its sessions individually na
   await expect.element(divider).toHaveAttribute("aria-valuetext", "Icons only");
   await screen.unmount();
   await using restored = await render(layout());
+  await restored.getByRole("button", { name: "Toggle main sidebar" }).click();
   const restoredDivider = restored.getByRole("separator", { name: "Resize Sidebar" });
   await expect.element(restoredDivider).toHaveAttribute("aria-valuetext", "Icons only");
   const icon = restored.getByRole("button", { name: "Review checkout", exact: true });
@@ -157,3 +159,38 @@ it("remembers an icon rail after dragging and keeps its sessions individually na
   await icon.click();
   await vi.waitFor(() => expect(restored.router?.state.location.pathname).toBe("/local/review"));
 });
+
+function SidebarVisibilityControl() {
+  const { open, setOpen } = useSidebar();
+  return (
+    <button aria-pressed={open} onClick={() => setOpen(true)}>
+      Open sidebar
+    </button>
+  );
+}
+
+it.each([false, true])(
+  "collapses the sidebar when Workspace is selected, compact=%s",
+  async (compact) => {
+    const previousViewport = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(1280, 800);
+    await using _viewport = {
+      [Symbol.asyncDispose]: () => page.viewport(previousViewport.width, previousViewport.height),
+    };
+    vi.mocked(useProjects).mockReturnValue([]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([]);
+    using _threads = { [Symbol.dispose]: () => vi.mocked(useQuietThreadShells).mockRestore() };
+    await using screen = await render(
+      <SidebarProvider>
+        <SidebarVisibilityControl />
+        <Sidebar compact={compact} routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+      { router: "/workspace" },
+    );
+    const control = screen.getByRole("button", { name: "Open sidebar", exact: true });
+    await control.click();
+    await expect.element(control).toHaveAttribute("aria-pressed", "true");
+    await screen.getByRole("link", { name: "Workspace", exact: true }).click();
+    await expect.element(control).toHaveAttribute("aria-pressed", "false");
+  },
+);

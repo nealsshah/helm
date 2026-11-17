@@ -150,10 +150,18 @@ it.effect(
           (run) => run.status === "interrupted" || run.status === "cancelled",
         ),
       ).toBe(true);
+      const lateCompletion = yield* Effect.flip(
+        workspace.checkpoint(lead, {
+          stage: "complete",
+          needsAttention: false,
+          summary: "Late report.",
+        }),
+      );
+      expect(lateCompletion.message).toContain("completionEvidence");
       yield* workspace.checkpoint(lead, {
-        stage: "complete",
+        stage: "qa",
         needsAttention: false,
-        summary: "Late report.",
+        summary: "Late progress.",
       });
       expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
       expect((yield* Effect.flip(send("paused-auto", lead))).cause).toContain("On pause");
@@ -395,6 +403,7 @@ it.effect("opens one idle Second Mate for an existing task without replacing its
     expect(records.thread.modelSelection).toEqual({
       instanceId: "claudeAgent",
       model: "claude-opus-5-5",
+      options: [{ id: "effort", value: "medium" }],
     });
     expect(records.runs).toHaveLength(0);
     expect(records.thread.projectId).toBe(projectId);
@@ -1243,7 +1252,8 @@ it.effect(
           { type: "report", itemId: "build", threadId, text: "Finished", stage: "complete" },
           { threadId },
         );
-      expect((yield* complete(primary)).requests[0]?.status).toBe("open");
+      expect((yield* Effect.flip(complete(primary))).message).toContain("completionEvidence");
+      expect((yield* workspace.get()).requests[0]?.status).toBe("open");
       expect((yield* complete(worker)).requests[0]?.status).toBe("obsolete");
       const t3 = yield* Orchestrator.OrchestratorV2;
       expect((yield* t3.getThreadRecords(worker, ["messages"])).messages).toHaveLength(0);
@@ -1529,6 +1539,7 @@ it.effect(
       yield* workspace.checkpoint(threadId, {
         stage: "complete",
         summary: "Verified Save.",
+        completionEvidence: "Verified the requested Save behavior and acceptance criteria.",
         needsAttention: false,
       });
       const retired = yield* workspace.command({
@@ -1544,4 +1555,146 @@ it.effect(
         stage: "complete",
       });
     }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("requires overall-goal evidence and settled workers before the owner marks Done", () =>
+  Effect.gen(function* () {
+    const workspace = yield* fixture;
+    yield* workspace.checkpoint(worker, {
+      stage: "complete",
+      needsAttention: false,
+      summary: "Finished one worker assignment",
+    });
+    expect((yield* workspace.get()).items[0]?.stage).toBe("planning");
+    yield* workspace.command({
+      type: "request",
+      itemId: "build",
+      threadId: worker,
+      requestId: "unresolved-goal-question",
+      kind: "question",
+      prompt: "Which behavior should ship?",
+    });
+    const lead = (yield* workspace.get()).items[0]!.secondMateThreadId!;
+    const completion = {
+      stage: "complete",
+      needsAttention: false,
+      summary: "All requested deliverables verified",
+      completionEvidence: "Implemented the task scope and verified its acceptance criteria.",
+    } as const;
+    expect(
+      (yield* Effect.flip(
+        workspace.checkpoint(lead, {
+          stage: "complete",
+          needsAttention: false,
+          summary: "Answered the question",
+        }),
+      )).message,
+    ).toContain("overall task goal");
+    expect((yield* Effect.flip(workspace.checkpoint(lead, completion))).message).toContain(
+      "unresolved",
+    );
+    expect((yield* workspace.get()).items[0]?.stage).toBe("planning");
+    yield* workspace.command({
+      type: "obsolete",
+      requestId: "unresolved-goal-question",
+      reason: "Answered",
+    });
+    const engine = yield* Orchestrator.OrchestratorV2;
+    yield* engine.dispatch({
+      type: "message.dispatch",
+      threadId: worker,
+      commandId: CommandId.make("unfinished-worker"),
+      messageId: MessageId.make("unfinished-worker"),
+      text: "Verify acceptance criteria",
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    expect((yield* Effect.flip(workspace.checkpoint(lead, completion))).message).toContain(
+      "workers",
+    );
+    const run = (yield* engine.getThreadRecords(worker, ["runs"])).runs[0]!;
+    const at = yield* DateTime.now;
+    yield* (yield* EventSinkV2).write({
+      events: [
+        {
+          id: EventId.make("finish-goal-worker"),
+          type: "run.updated",
+          threadId: worker,
+          runId: run.id,
+          occurredAt: at,
+          payload: { ...run, status: "completed", completedAt: at },
+        },
+      ],
+    });
+    yield* workspace.checkpoint(lead, {
+      stage: "reviewing",
+      needsAttention: false,
+      summary: "Answered a follow-up; full verification remains",
+    });
+    expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
+    yield* workspace.checkpoint(lead, completion);
+    const completed = (yield* workspace.get()).items[0]!;
+    expect(completed.stage).toBe("complete");
+    expect(completed.completedAt).toBeDefined();
+    yield* TestClock.adjust("1 second");
+    yield* workspace.command({ type: "update", itemId: "build", title: "Verified build" });
+    expect((yield* workspace.get()).items[0]?.completedAt).toBe(completed.completedAt);
+    yield* workspace.command({ type: "update", itemId: "build", stage: "building" });
+    expect((yield* workspace.get()).items[0]?.completedAt).toBeUndefined();
+    yield* workspace.checkpoint(lead, completion);
+    expect((yield* workspace.get()).items[0]?.completedAt).not.toBe(completed.completedAt);
+  }).pipe(Effect.provide(testLayer)),
+);
+
+it.effect("starts a Second Mate with the explicitly requested model before its first turn", () =>
+  Effect.gen(function* () {
+    const workspace = yield* fixture;
+    yield* workspace.command({ type: "orchestrator", threadId: primary });
+    const modelSelection = {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-6.1-sol",
+      options: [{ id: "reasoningEffort", value: "medium" }],
+    };
+    const started = yield* workspace.startTask(primary, {
+      itemId: "explicit-sol-owner",
+      title: "Use Sol",
+      brief: "Verify the requested feature.",
+      modelSelection,
+    });
+    const records = yield* (yield* Orchestrator.OrchestratorV2).getThreadRecords(started.threadId, [
+      "runs",
+    ]);
+    expect(records.thread.modelSelection).toEqual(modelSelection);
+    expect(records.runs).toHaveLength(1);
+    expect(records.runs[0]?.modelSelection).toEqual(modelSelection);
+    const settings = yield* Settings.ServerSettingsService;
+    const configured = { ...modelSelection, options: [{ id: "reasoningEffort", value: "high" }] };
+    yield* settings.updateSettings({ workspaceSecondMateModelSelection: configured });
+    const task = {
+      itemId: "configured-owner",
+      title: "Configured default",
+      brief: "Use the configured default.",
+    };
+    const created = yield* workspace.startTask(primary, task);
+    const engine = yield* Orchestrator.OrchestratorV2;
+    const configuredRecords = yield* engine.getThreadRecords(created.threadId, ["runs"]);
+    expect(configuredRecords.thread.modelSelection).toEqual(configured);
+    expect(configuredRecords.runs[0]?.modelSelection).toEqual(configured);
+    yield* settings.updateSettings({
+      workspaceSecondMateModelSelection: {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-opus-5-5",
+        options: [{ id: "effort", value: "medium" }],
+      },
+    });
+    yield* workspace.startTask(primary, task);
+    expect((yield* engine.getThreadRecords(created.threadId, [])).thread.modelSelection).toEqual(
+      configured,
+    );
+    expect((yield* engine.getThreadRecords(started.threadId, [])).thread.modelSelection).toEqual(
+      modelSelection,
+    );
+  }).pipe(Effect.provide(testLayer)),
 );

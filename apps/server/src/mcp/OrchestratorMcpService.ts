@@ -123,6 +123,7 @@ import {
   runtimeModeRank,
   taskPrompt,
   workspaceWorkerTarget,
+  hasExplicitWorkerModel,
   directWorkerCannotDelegate,
 } from "./delegatedTaskModes.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
@@ -1350,6 +1351,7 @@ const make = Effect.gen(function* () {
     readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
+    readonly inheritOptions?: boolean;
     /** Receipt replays bypass current settings because they start no work. Dispatch must reuse the checked command ID. */
     readonly skipProjectEnablementFilter?: boolean;
   }): Effect.fn.Return<ResolvedTarget, OrchestratorMcpFailure> {
@@ -1465,7 +1467,9 @@ const make = Effect.gen(function* () {
     }
 
     const inheritsOptions =
-      instanceId === inheritedSelection.instanceId && model === inheritedSelection.model;
+      input.inheritOptions !== false &&
+      instanceId === inheritedSelection.instanceId &&
+      model === inheritedSelection.model;
     let options = inheritsOptions
       ? knownOptions(inheritedSelection.options, descriptors)
       : undefined;
@@ -2428,8 +2432,18 @@ const make = Effect.gen(function* () {
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
       const target = yield* resolveTargetRechecking({
         parent,
-        target: parent.workspaceRole ? workspaceWorkerTarget(input.target, false) : input.target,
+        target: parent.workspaceRole
+          ? workspaceWorkerTarget(
+              input.target,
+              (yield* serverSettings.getSettings.pipe(
+                Effect.mapError(() =>
+                  failure("orchestration_error", "Unable to read server settings."),
+                ),
+              )).workspaceWorkerModelSelection,
+            )
+          : input.target,
         providers,
+        inheritOptions: !parent.workspaceRole || hasExplicitWorkerModel(input.target),
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
       const runtimeMode = yield* resolveRuntimeMode(
@@ -2838,13 +2852,21 @@ const make = Effect.gen(function* () {
                 target:
                   committedThread === null
                     ? parent.workspaceRole
-                      ? workspaceWorkerTarget(request.target, false)
+                      ? workspaceWorkerTarget(
+                          request.target,
+                          (yield* serverSettings.getSettings.pipe(
+                            Effect.mapError(() =>
+                              failure("orchestration_error", "Unable to read server settings."),
+                            ),
+                          )).workspaceWorkerModelSelection,
+                        )
                       : request.target
                     : {
                         ...request.target,
                         providerInstanceId: committedThread.modelSelection.instanceId,
                       },
                 providers,
+                inheritOptions: !parent.workspaceRole || hasExplicitWorkerModel(request.target),
                 skipProjectEnablementFilter: isRetryOfAcceptedCreation,
               });
               const runtimeMode = yield* resolveRuntimeMode(

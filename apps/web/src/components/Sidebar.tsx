@@ -927,7 +927,7 @@ export default function Sidebar({
   } = useSidebarLookups();
   const delegatedUnderParent = useDelegatedUnderParent();
   const router = useRouter();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
@@ -2996,6 +2996,10 @@ export default function Sidebar({
         <Link
           to="/workspace"
           aria-label="Workspace"
+          onClick={() => {
+            if (isMobile) setOpenMobile(false);
+            else setOpen(false);
+          }}
           title="Workspace"
           className="grid size-9 shrink-0 place-items-center rounded-lg hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           activeProps={{ className: "bg-sidebar-row-hover text-sidebar-foreground" }}
@@ -3078,6 +3082,7 @@ export default function Sidebar({
               to="/workspace"
               onClick={() => {
                 if (isMobile) setOpenMobile(false);
+                else setOpen(false);
               }}
               className="mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium motion-safe:transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               activeProps={{

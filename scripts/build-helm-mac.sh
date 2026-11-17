@@ -24,6 +24,11 @@ if (( $# )); then
   mkdir -p "$output"
   output=$(cd "$output" && pwd)
 fi
+if [[ "$mode" == stage && -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+  echo 'Release staging requires a clean Git checkout. Commit all release changes first.' >&2
+  exit 1
+fi
+
 case "$(uname -m)" in
   arm64) arch=arm64; rust_target=aarch64-apple-darwin ;;
   x86_64) arch=x64; rust_target=x86_64-apple-darwin ;;

@@ -2630,3 +2630,29 @@ code {
     border-color: color-mix(in oklab, var(--color-working) 60%, transparent);
   }
 }
+
+.workspace-completion-pulse {
+  pointer-events: none;
+  position: absolute;
+  inset: -1px;
+  border: 2px solid var(--color-success);
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--color-success) 8%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-completion-pulse {
+    animation: workspace-completion-pulse 1.8s ease-in-out infinite;
+    animation-play-state: var(--visible-animation-state, paused);
+  }
+}
+
+@keyframes workspace-completion-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}

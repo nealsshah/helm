@@ -1105,17 +1105,18 @@ it.effect("a task named only by environment inherits the parent's model, within 
 
       const sql = Context.get(database, SqlClient.SqlClient);
       yield* sql`INSERT INTO helm_orchestrators(thread_id) VALUES (${parentThreadId})`;
+      const workerSelection = {
+        ...modelSelection,
+        options: [{ id: "reasoningEffort", value: "low" }],
+      };
+      yield* a.settings.updateSettings({ workspaceWorkerModelSelection: workerSelection });
       const worker = yield* a.call("delegate_task", {
         task: "Review the patch on the box.",
         target: { environmentId: box.environmentId },
         clientRequestId: "workspace-review",
       });
       expect(worker.isError, JSON.stringify(worker.content)).toBe(false);
-      expect((yield* Ref.get(thread.launchedWith))?.modelSelection).toEqual({
-        instanceId: "claudeAgent",
-        model: "claude-opus-5-5",
-        options: [],
-      });
+      expect((yield* Ref.get(thread.launchedWith))?.modelSelection).toEqual(workerSelection);
 
       // Asking for more than the link allows is still refused there.
       const broader = yield* a.call("delegate_task", {

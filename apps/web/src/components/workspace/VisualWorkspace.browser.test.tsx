@@ -6,6 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "../../../test/render";
 import { makeThreadFixture } from "../../test-fixtures";
 import { SidebarProvider } from "../ui/sidebar";
+import { ToastProvider } from "../ui/toast";
 import type { WorkspaceState } from "./workspaceState";
 import { VisualWorkspace } from "./VisualWorkspace";
 
@@ -290,6 +291,11 @@ it("leaves a discussion selected when another work item requests attention and r
 it("retires done tasks with a checkmark and asks before retiring an unfinished task", async () => {
   runWorkspace.mockReset();
   sessionStorage.removeItem("helm.workspace.selected");
+  let finishRetirement = () => {};
+  const retirement = new Promise<void>((resolve) => {
+    finishRetirement = resolve;
+  });
+  runWorkspace.mockImplementationOnce(() => retirement);
   const done = work("Finished ticket", "complete");
   const active = work("Active ticket", "building");
   const items = [active, done];
@@ -313,7 +319,9 @@ it("retires done tasks with a checkmark and asks before retiring an unfinished t
   };
   await using screen = await render(
     <SidebarProvider>
-      <VisualWorkspace />
+      <ToastProvider>
+        <VisualWorkspace />
+      </ToastProvider>
     </SidebarProvider>,
     { router: "/workspace" },
   );
@@ -324,6 +332,14 @@ it("retires done tasks with a checkmark and asks before retiring an unfinished t
     itemId: done.id,
     onlyIfDone: true,
   });
+  await expect
+    .element(screen.getByRole("button", { name: /Finished ticket/, exact: false }).first())
+    .toBeDisabled();
+  await expect.element(page.getByText("Retiring task", { exact: true })).toBeVisible();
+  finishRetirement();
+  await expect
+    .element(screen.getByRole("button", { name: "Retire Finished ticket" }))
+    .toBeEnabled();
   runWorkspace.mockClear();
 
   const card = screen.getByRole("button", { name: /Active ticket/ });
@@ -337,6 +353,118 @@ it("retires done tasks with a checkmark and asks before retiring an unfinished t
 
   await card.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Retire task" }).click();
+  let failRetirement = (_error: Error) => {};
+  const failedRetirement = new Promise<void>((_resolve, reject) => {
+    failRetirement = reject;
+  });
+  runWorkspace.mockImplementationOnce(() => failedRetirement);
   await dialog.getByRole("button", { name: "Retire task" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(card).toBeDisabled();
+  await expect.element(page.getByText("Retiring task", { exact: true })).toBeVisible();
+  failRetirement(new Error("Retirement failed"));
+  await expect.element(card).toBeEnabled();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("Retirement failed");
   expect(runWorkspace).toHaveBeenCalledExactlyOnceWith(env, { type: "retire", itemId: active.id });
+});
+
+it("keeps a completion unread until opened and notices a later completion", async () => {
+  const previousViewport = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1440, 900);
+  await using _viewport = {
+    [Symbol.asyncDispose]: () => page.viewport(previousViewport.width, previousViewport.height),
+  };
+  const storageKey = "helm.workspace.read-completions";
+  const saved = localStorage.getItem(storageKey);
+  using _restore = {
+    [Symbol.dispose]: () => {
+      if (saved === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, saved);
+    },
+  };
+  localStorage.removeItem(storageKey);
+  sessionStorage.removeItem("helm.workspace.selected");
+  const task = work("Completion notification", "building");
+  const setTask = (item: WorkItem) => {
+    snapshot = {
+      hosts: [
+        {
+          environmentId: env,
+          label: "Local",
+          connected: true,
+          sessionOnly: false,
+          secondMate: true,
+          workerTriage: true,
+          retirement: false,
+          error: null,
+          snapshot: { orchestratorThreadIds: [], items: [item], requests: [] },
+        },
+      ],
+      items: [{ environmentId: env, item }],
+      requests: [],
+      shells: [],
+    };
+  };
+  setTask(task);
+  const ui = () => (
+    <SidebarProvider>
+      <VisualWorkspace />
+    </SidebarProvider>
+  );
+  await using screen = await render(ui(), { router: "/workspace" });
+  const card = screen
+    .getByRole("region", { name: "Workspace overview" })
+    .getByRole("button", { name: /Completion notification/ });
+  await expect.element(card).not.toHaveAttribute("aria-description");
+  const completed = { ...task, stage: "complete", completedAt: timestamp } as const;
+  setTask(completed);
+  await screen.rerender(ui());
+  await expect
+    .element(card)
+    .toHaveAttribute("aria-description", "Newly completed task. Open to mark as seen.");
+  await card.click();
+  await expect.element(card).not.toHaveAttribute("aria-description");
+  await screen.unmount();
+  await using remounted = await render(ui(), { router: "/workspace" });
+  const restoredCard = remounted
+    .getByRole("region", { name: "Workspace overview" })
+    .getByRole("button", { name: /Completion notification/ });
+  await expect.element(restoredCard).not.toHaveAttribute("aria-description");
+  setTask({ ...completed, updatedAt: "2026-11-06T19:00:00Z" });
+  await remounted.rerender(ui());
+  await expect.element(restoredCard).not.toHaveAttribute("aria-description");
+  setTask({ ...task, updatedAt: "2026-11-06T20:00:00Z" });
+  await remounted.rerender(ui());
+  setTask({ ...completed, completedAt: "2026-11-06T21:00:00Z" });
+  await remounted.rerender(ui());
+  await expect
+    .element(restoredCard)
+    .toHaveAttribute("aria-description", "Newly completed task. Open to mark as seen.");
+  snapshot = {
+    ...snapshot,
+    items: snapshot.items.map((entry) => ({
+      ...entry,
+      item: { ...entry.item, directWorker: true },
+    })),
+    requests: [
+      {
+        key: "completed-direct-reply",
+        environmentId: env,
+        itemId: task.id,
+        threadId: task.primaryThreadId,
+        kind: "attention",
+        prompt: "Read the completed result",
+        createdAt: timestamp,
+      },
+    ],
+  };
+  await remounted.rerender(ui());
+  expect(remounted.container.querySelector(".workspace-completion-pulse")).not.toBeNull();
+  await remounted
+    .getByRole("region", { name: "Needs me", exact: true })
+    .getByRole("button", { name: task.title, exact: true })
+    .click();
+  await vi.waitFor(() =>
+    expect(remounted.container.querySelector(".workspace-completion-pulse")).toBeNull(),
+  );
 });

@@ -226,7 +226,7 @@ export function searchableMessageSegments(
   }
   if (message.role !== "assistant") return null;
   return markdownThreadFindText(
-    message.text || (message.streaming ? "" : "(empty response)"),
+    message.text,
     false,
     cwd,
     skills,

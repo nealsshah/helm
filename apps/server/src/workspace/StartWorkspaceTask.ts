@@ -2,11 +2,10 @@ import {
   CommandId,
   MessageId,
   type ProjectId,
+  type ModelSelection,
   ThreadId,
   WorkItem,
   WorkspaceError,
-  WORKSPACE_SECOND_MATE_MODEL,
-  WORKSPACE_WORKER_MODEL,
   type WorkspaceCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -15,6 +14,7 @@ import * as Schema from "effect/Schema";
 import type * as Semaphore from "effect/Semaphore";
 import type * as SqlClient from "effect/sql/SqlClient";
 import type { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import type * as ServerSettings from "../serverSettings.ts";
 import { unassignedWorkspaceDelegates } from "./VisualWorkspaceSchema.ts";
 
 const isWorkspaceError = Schema.is(WorkspaceError);
@@ -24,11 +24,13 @@ const failure = (message: string) => new WorkspaceError({ message });
 
 export const ensureTaskOwnerThread = Effect.fn("VisualWorkspace.ensureTaskOwnerThread")(function* (
   threads: ThreadManagementService["Service"],
+  serverSettings: ServerSettings.ServerSettingsService["Service"],
   sourceThreadId: ThreadId,
   ownerThreadId: ThreadId,
   title: string,
   role: "Second Mate" | "Worker",
   destination?: ProjectId,
+  modelSelection?: ModelSelection,
 ) {
   const { thread: source } = yield* threads.getThreadRecords(sourceThreadId, []);
   const projectId = destination ?? source.projectId;
@@ -42,13 +44,18 @@ export const ensureTaskOwnerThread = Effect.fn("VisualWorkspace.ensureTaskOwnerT
       return yield* failure(`The ${role} chat is unavailable.`);
     }
   } else {
+    const settings = yield* serverSettings.getSettings;
     yield* threads.dispatch({
       type: "thread.create",
       commandId: CommandId.make(`helm:create:${ownerThreadId}`),
       threadId: ownerThreadId,
       projectId,
       title: `${role} · ${title}`,
-      modelSelection: role === "Worker" ? WORKSPACE_WORKER_MODEL : WORKSPACE_SECOND_MATE_MODEL,
+      modelSelection:
+        modelSelection ??
+        (role === "Worker"
+          ? settings.workspaceWorkerModelSelection
+          : settings.workspaceSecondMateModelSelection),
       runtimeMode: source.runtimeMode,
       interactionMode: "default",
       branch: projectId === source.projectId ? source.branch : null,
@@ -63,12 +70,14 @@ export const ensureTaskOwnerThread = Effect.fn("VisualWorkspace.ensureTaskOwnerT
 export function makeStartWorkspaceTask({
   sql,
   threads,
+  settings,
   lock,
   notify,
   newItem,
 }: {
   sql: SqlClient.SqlClient;
   threads: ThreadManagementService["Service"];
+  settings: ServerSettings.ServerSettingsService["Service"];
   lock: Semaphore.Semaphore;
   notify: () => Effect.Effect<boolean>;
   newItem: (cmd: Extract<WorkspaceCommand, { type: "create" }>, timestamp: string) => WorkItem;
@@ -81,6 +90,7 @@ export function makeStartWorkspaceTask({
       brief: string;
       project?: string | undefined;
       mode?: "managed" | "direct" | undefined;
+      modelSelection?: ModelSelection | undefined;
     },
   ) {
     const direct = task.mode === "direct";
@@ -133,11 +143,13 @@ export function makeStartWorkspaceTask({
           }
           const projectId = yield* ensureTaskOwnerThread(
             threads,
+            settings,
             firstMateThreadId,
             ownerThreadId,
             task.title,
             direct ? "Worker" : "Second Mate",
             destination,
+            task.modelSelection,
           );
           if (!saved) {
             const item = newItem(

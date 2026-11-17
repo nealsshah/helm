@@ -32,34 +32,39 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     row.projectedItem?.item.id,
   );
   const text = liveText ?? row.message.text;
-  const messageText = text || (row.message.streaming ? "" : "(empty response)");
+  const showContent =
+    text.trim().length > 0 || row.message.streaming || (row.message.attachments?.length ?? 0) > 0;
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <div data-thread-find-text="true">
-          <AssistantCitationSource
-            messageId={row.message.id}
-            {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
-            itemKey={row.id}
-            request={ctx.citationRequest}
-            listRef={ctx.listRef}
-          >
-            <ChatMarkdown
-              text={messageText}
-              cwd={ctx.markdownCwd}
-              threadRef={ctx.threadRef ?? undefined}
-              isStreaming={Boolean(row.message.streaming)}
-              lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-              skills={ctx.skills}
-              headingLevelOffset={MESSAGE_HEADING_LEVEL}
-              onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-              onRunShellCommand={ctx.onRunShellCommand}
-              onImageExpand={ctx.onImageExpand}
-            />
-          </AssistantCitationSource>
-        </div>
+        {showContent && (
+          <>
+            <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
+            <div data-thread-find-text="true">
+              <AssistantCitationSource
+                messageId={row.message.id}
+                {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+                itemKey={row.id}
+                request={ctx.citationRequest}
+                listRef={ctx.listRef}
+              >
+                <ChatMarkdown
+                  text={text}
+                  cwd={ctx.markdownCwd}
+                  threadRef={ctx.threadRef ?? undefined}
+                  isStreaming={Boolean(row.message.streaming)}
+                  lineBreaks={shouldPreserveAssistantLineBreaks(text)}
+                  skills={ctx.skills}
+                  headingLevelOffset={MESSAGE_HEADING_LEVEL}
+                  onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+                  onRunShellCommand={ctx.onRunShellCommand}
+                  onImageExpand={ctx.onImageExpand}
+                />
+              </AssistantCitationSource>
+            </div>
+          </>
+        )}
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection
             turnSummary={row.assistantTurnDiffSummary}

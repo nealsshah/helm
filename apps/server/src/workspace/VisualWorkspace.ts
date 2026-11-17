@@ -28,6 +28,7 @@ import {
   isActiveRun,
 } from "../orchestration-v2/ThreadManagementService.ts";
 
+import * as ServerSettings from "../serverSettings.ts";
 import { makeTaskRetirement } from "./RetireWorkspaceTask.ts";
 import {
   ensureTaskOwnerThread,
@@ -58,6 +59,7 @@ function newItem(cmd: Extract<WorkspaceCommand, { type: "create" }>, timestamp: 
     title: cmd.title,
     scope: cmd.scope ?? "",
     stage: cmd.stage ?? "planning",
+    ...(cmd.stage === "complete" ? { completedAt: timestamp } : {}),
     primaryThreadId: cmd.primaryThreadId,
     priority: 0,
     attention: "none",
@@ -98,6 +100,7 @@ export class VisualWorkspace extends Context.Service<
 export const makeVisualWorkspace = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const eventSink = yield* EventSinkV2;
   const random = yield* SecureRandom.SecureRandom;
   const changes = yield* PubSub.sliding<void>(1);
@@ -135,6 +138,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       ),
       canReassignPrimary: true,
       updatedAt: row.updated_at,
+      ...(row.stage === "complete" ? { completedAt: row.updated_at } : {}),
     }));
   });
   const get = (options?: { includeWorkerRequests?: boolean }) =>
@@ -527,6 +531,17 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       cmd.type === "report" || cmd.type === "request"
         ? existing
         : { ...existing, canReassignPrimary: undefined };
+    if (
+      actor &&
+      !checkpoint &&
+      (cmd.type === "update" || cmd.type === "report") &&
+      cmd.stage === "complete" &&
+      (cmd.type === "update" ||
+        cmd.threadId === (workspaceOwnerThreadId(item) ?? item.primaryThreadId))
+    )
+      return yield* fail(
+        "Use t3_workspace_checkpoint with overall task completionEvidence to mark Done.",
+      );
     const member = (id: ThreadId) =>
       item.primaryThreadId === id ||
       item.secondMateThreadId === id ||
@@ -612,7 +627,9 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         item = {
           ...item,
           stage:
-            item.pausedAt || (owner && cmd.threadId !== owner)
+            item.pausedAt ||
+            (owner && cmd.threadId !== owner) ||
+            (cmd.stage === "complete" && cmd.threadId !== (owner ?? item.primaryThreadId))
               ? item.stage
               : (cmd.stage ?? item.stage),
           latestReport: {
@@ -718,6 +735,11 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         break;
       }
     }
+    if (item.stage === "complete" && existing.stage !== "complete") {
+      item = { ...item, completedAt: timestamp };
+    } else if (item.stage !== "complete") {
+      item = { ...item, completedAt: undefined };
+    }
     yield* sql`UPDATE helm_items SET body=${yield* encodeItem({ ...item, updatedAt: timestamp })} WHERE id=${item.id}`;
     if (cmd.type === "associate") yield* attachWorkspaceDescendants(sql, item.id, cmd.threadId);
   });
@@ -760,6 +782,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
 
     yield* ensureTaskOwnerThread(
       threads,
+      settings,
       previous ?? item.primaryThreadId,
       lead,
       item.title,
@@ -1069,6 +1092,30 @@ export const makeVisualWorkspace = Effect.gen(function* () {
           if (decision.needsAttention) yield* ensureSecondMate(id, threadId);
           const result = yield* sql.withTransaction(
             Effect.gen(function* () {
+              const [owner] = yield* sql`SELECT 1 FROM helm_items WHERE id=${id}
+                AND COALESCE(json_extract(body,'$.secondMateThreadId'),json_extract(body,'$.primaryThreadId'))=${threadId}`;
+              if (owner && decision.stage === "complete") {
+                if (!decision.completionEvidence?.trim())
+                  return yield* fail(
+                    "Verify the overall task goal and provide completionEvidence before marking Done. A finished answer is not task completion.",
+                  );
+                const [unresolved] = yield* sql`SELECT 1 FROM helm_requests WHERE item_id=${id}
+                  AND json_extract(body,'$.status') IN ('open','delivering')
+                  AND (json_extract(body,'$.threadId')<>${threadId} OR json_extract(body,'$.kind')<>'attention') LIMIT 1`;
+                const [pending] = yield* sql`SELECT 1 FROM helm_memberships m
+                  JOIN orchestration_v2_projection_runtime_requests r ON r.thread_id=m.thread_id
+                  WHERE m.item_id=${id} AND r.status='pending' LIMIT 1`;
+                if (unresolved || pending)
+                  return yield* fail(
+                    "Resolve the task's unresolved questions and approvals before marking Done.",
+                  );
+                const [working] = yield* sql`SELECT 1 FROM helm_memberships m
+                  JOIN orchestration_v2_projection_runs r ON r.thread_id=m.thread_id
+                  WHERE m.item_id=${id} AND m.thread_id<>${threadId}
+                  AND r.status IN ('queued','preparing','starting','running','waiting') LIMIT 1`;
+                if (working)
+                  return yield* fail("Wait for the task's workers to finish before marking Done.");
+              }
               const [current] = yield* sql`SELECT 1 FROM helm_items i WHERE i.id=${id}
               AND (json_extract(i.body,'$.stage')=${decision.stage} OR (SELECT thread_id FROM helm_task_owners WHERE item_id=${id})<>${threadId})
               AND json_extract(i.body,'$.latestReport.threadId')=${threadId}
@@ -1118,7 +1165,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     command,
     subscribe,
     checkpoint,
-    startTask: makeStartWorkspaceTask({ sql, threads, lock, notify, newItem }),
+    startTask: makeStartWorkspaceTask({ sql, threads, settings, lock, notify, newItem }),
   };
 });
 export const layer = Layer.effect(VisualWorkspace, makeVisualWorkspace);

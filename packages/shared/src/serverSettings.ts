@@ -617,6 +617,15 @@ export function applyServerSettingsPatch(
           ),
         }
       : {}),
+    ...(patch.workspaceFirstMateModelSelection !== undefined
+      ? { workspaceFirstMateModelSelection: patch.workspaceFirstMateModelSelection }
+      : {}),
+    ...(patch.workspaceSecondMateModelSelection !== undefined
+      ? { workspaceSecondMateModelSelection: patch.workspaceSecondMateModelSelection }
+      : {}),
+    ...(patch.workspaceWorkerModelSelection !== undefined
+      ? { workspaceWorkerModelSelection: patch.workspaceWorkerModelSelection }
+      : {}),
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),

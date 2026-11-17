@@ -27,6 +27,7 @@ import {
 } from "./serverSettings.ts";
 
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
+const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 
 const FOLDED_SERVER_SETTINGS = { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true };
@@ -991,4 +992,26 @@ describe("synchronized model preferences", () => {
       }).favorites,
     ).toEqual([{ provider: otherProvider, model: "sol" }]);
   });
+});
+
+it("replaces workspace role model defaults without leaking the previous provider's options", () => {
+  const current = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+    workspaceSecondMateModelSelection: createModelSelection(
+      ProviderInstanceId.make("claudeAgent"),
+      "claude-opus-5-5",
+      [{ id: "effort", value: "high" }],
+    ),
+  });
+  const selection = createModelSelection(ProviderInstanceId.make("codex"), "gpt-6.1-sol");
+  const updated = applyServerSettingsPatch(current, {
+    workspaceFirstMateModelSelection: selection,
+    workspaceSecondMateModelSelection: selection,
+    workspaceWorkerModelSelection: selection,
+  });
+  expect(updated.workspaceFirstMateModelSelection).toEqual(selection);
+  expect(updated.workspaceSecondMateModelSelection).toEqual(selection);
+  expect(updated.workspaceWorkerModelSelection).toEqual(selection);
+  expect(
+    decodeServerSettings(encodeServerSettings(updated)).workspaceSecondMateModelSelection,
+  ).toEqual(selection);
 });

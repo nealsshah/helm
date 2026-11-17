@@ -74,6 +74,7 @@ import { isMacPlatform } from "../../lib/utils";
 import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { Button } from "../ui/button";
+import { Spinner } from "../ui/spinner";
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -148,7 +149,9 @@ const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [switchChannel, setSwitchChannel] = useState<DesktopUpdateChannel | null>(null);
-  const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
+  const [pendingUpdateAction, setPendingUpdateAction] = useState<
+    "check" | "download" | "install" | null
+  >(null);
   const { environments } = useEnvironments();
   const sessionStates = useAtomValue(
     environmentSessionStatesAtom(
@@ -189,26 +192,29 @@ function AboutVersionSection() {
 
   const handleButtonClick = async () => {
     const bridge = window.desktopBridge;
-    if (!bridge) return;
+    if (!bridge || pendingUpdateAction !== null) return;
 
     const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
 
     if (action === "download") {
-      void bridge.downloadUpdate().catch((error: unknown) => {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not download update",
-            description: error instanceof Error ? error.message : "Download failed.",
-          }),
-        );
-      });
+      setPendingUpdateAction("download");
+      void bridge
+        .downloadUpdate()
+        .catch((error: unknown) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not download update",
+              description: error instanceof Error ? error.message : "Download failed.",
+            }),
+          );
+        })
+        .finally(() => setPendingUpdateAction(null));
       return;
     }
 
     if (action === "install") {
-      if (isUpdateActionPending) return;
-      setIsUpdateActionPending(true);
+      setPendingUpdateAction("install");
       let confirmed = false;
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
@@ -217,7 +223,7 @@ function AboutVersionSection() {
           ),
         );
       } catch (error) {
-        setIsUpdateActionPending(false);
+        setPendingUpdateAction(null);
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -228,7 +234,7 @@ function AboutVersionSection() {
         return;
       }
       if (!confirmed) {
-        setIsUpdateActionPending(false);
+        setPendingUpdateAction(null);
         return;
       }
       void bridge
@@ -242,11 +248,12 @@ function AboutVersionSection() {
             }),
           );
         })
-        .finally(() => setIsUpdateActionPending(false));
+        .finally(() => setPendingUpdateAction(null));
       return;
     }
 
     if (typeof bridge.checkForUpdate !== "function") return;
+    setPendingUpdateAction("check");
     void bridge
       .checkForUpdate()
       .then((result) => {
@@ -271,7 +278,8 @@ function AboutVersionSection() {
             description: error instanceof Error ? error.message : "Update check failed.",
           }),
         );
-      });
+      })
+      .finally(() => setPendingUpdateAction(null));
   };
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
@@ -288,8 +296,18 @@ function AboutVersionSection() {
     // Off its track, "up to date" only means no switch is pending; Review moves it.
     ...(appOffTrack ? {} : { "up-to-date": "Up to Date" }),
   };
-  const buttonLabel =
-    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+  const pendingLabel = {
+    check: "Checking…",
+    download: "Downloading…",
+    install: "Installing…",
+  };
+  const updateBusy =
+    pendingUpdateAction !== null ||
+    updateState?.status === "checking" ||
+    updateState?.status === "downloading";
+  const buttonLabel = pendingUpdateAction
+    ? pendingLabel[pendingUpdateAction]
+    : (actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates");
   const description =
     action === "download" || action === "install"
       ? "Update available."
@@ -310,9 +328,11 @@ function AboutVersionSection() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={buttonDisabled || isUpdateActionPending}
+                  disabled={buttonDisabled || updateBusy}
+                  aria-busy={updateBusy}
                   onClick={handleButtonClick}
                 >
+                  {updateBusy && <Spinner />}
                   {buttonLabel}
                 </Button>
               }

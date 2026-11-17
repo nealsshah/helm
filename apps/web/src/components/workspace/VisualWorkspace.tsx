@@ -18,6 +18,7 @@ import {
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../../lib/utils";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { Button } from "../ui/button";
 import {
   AlertDialog,
@@ -31,6 +32,7 @@ import {
 import { useReadWorkspaceReply } from "./ReadWorkspaceReply";
 import { RetiredTasksMenu } from "./RetiredTasksMenu";
 import { TaskCardButton } from "./TaskCardButton";
+import { toastManager } from "../ui/toast";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "../../workspaceTitlebar";
 import { SidebarInset, useSidebarVisibility } from "../ui/sidebar";
 import { OrchestratorPanel } from "./OrchestratorPanel";
@@ -102,6 +104,8 @@ function WorkCard({
   onClick,
   onRetire,
   retirement,
+  retiring,
+  unreadCompletion,
 }: {
   entry: BoardItem;
   sessions: EnvironmentThreadShell[];
@@ -112,6 +116,8 @@ function WorkCard({
   onClick: () => void;
   onRetire: (entry: BoardItem) => void;
   retirement: boolean;
+  retiring: boolean;
+  unreadCompletion: boolean;
 }) {
   const { item } = entry;
   const primary = sessions.find((s) => s.id === item.primaryThreadId);
@@ -135,6 +141,8 @@ function WorkCard({
       entry={entry}
       environmentId={entry.environmentId}
       retirement={retirement}
+      retiring={retiring}
+      unreadCompletion={unreadCompletion}
       onRetire={onRetire}
       aria-pressed={selected}
       onOpen={onClick}
@@ -197,13 +205,21 @@ function WorkCard({
 }
 
 const Target = Schema.NullOr(PanelTarget);
+const CompletionReads = Schema.Record(Schema.String, Schema.String);
+const completionKey = (entry: BoardItem) => JSON.stringify([entry.environmentId, entry.item.id]);
 
 export function VisualWorkspace() {
   const state = useWorkspaceState();
+  const [readCompletions, setReadCompletions] = useLocalStorage(
+    "helm.workspace.read-completions",
+    {},
+    CompletionReads,
+  );
   const sidebarVisible = useSidebarVisibility();
   const command = useWorkspaceCommand();
   const readReply = useReadWorkspaceReply();
   const delivery = useDelivery();
+  const [retiring, setRetiring] = useState<BoardItem | null>(null);
   const [confirmation, setConfirmation] = useState<BoardItem | null>(null);
   const [storedTarget, setTarget] = useWorkspaceTabValue("selected", null, Target);
   const target =
@@ -260,7 +276,19 @@ export function VisualWorkspace() {
   function select(target: PanelTarget) {
     setShowOrchestrator(false);
     setTarget(target);
-    if (target.worker || !target.itemId) return;
+    if (!target.itemId) return;
+    const completed = state.items.find(
+      (entry) =>
+        entry.environmentId === target.environmentId &&
+        entry.item.id === target.itemId &&
+        entry.item.stage === "complete" &&
+        entry.item.completedAt,
+    );
+    if (completed?.item.completedAt) {
+      const stamp = completed.item.completedAt;
+      setReadCompletions((previous) => ({ ...previous, [completionKey(completed)]: stamp }));
+    }
+    if (target.worker) return;
     const reply = state.requests.find(
       (request) =>
         request.environmentId === target.environmentId &&
@@ -279,17 +307,26 @@ export function VisualWorkspace() {
     });
   }
   function retire(entry: BoardItem, onlyIfDone = false) {
+    if (delivery.busy) return;
+    setConfirmation(null);
     void delivery.submit(async () => {
+      setRetiring(entry);
+      const toastId = toastManager.add({ type: "loading", title: "Retiring task", timeout: 0 });
       await command(entry.environmentId, {
         type: "retire",
         itemId: entry.item.id,
         ...(onlyIfDone ? { onlyIfDone: true } : {}),
-      });
-      setConfirmation(null);
-      if (target?.itemId === entry.item.id && target.environmentId === entry.environmentId)
-        setTarget(null);
-      if (returnTo?.itemId === entry.item.id && returnTo.environmentId === entry.environmentId)
-        setReturnTo(null);
+      })
+        .then(() => {
+          if (target?.itemId === entry.item.id && target.environmentId === entry.environmentId)
+            setTarget(null);
+          if (returnTo?.itemId === entry.item.id && returnTo.environmentId === entry.environmentId)
+            setReturnTo(null);
+        })
+        .finally(() => {
+          setRetiring(null);
+          toastManager.close(toastId);
+        });
     });
   }
   function requestRetirement(entry: BoardItem) {
@@ -397,6 +434,16 @@ export function VisualWorkspace() {
                     <li key={key} className="flex w-96 max-w-[90%] shrink-0 snap-start">
                       <TaskCardButton
                         entry={linked}
+                        unreadCompletion={Boolean(
+                          linked?.item.stage === "complete" &&
+                          linked.item.completedAt &&
+                          readCompletions[completionKey(linked)] !== linked.item.completedAt,
+                        )}
+                        retiring={Boolean(
+                          linked &&
+                          retiring?.environmentId === environmentId &&
+                          retiring.item.id === linked.item.id,
+                        )}
                         retirement={Boolean(host?.connected && host.retirement)}
                         environmentId={environmentId}
                         onRetire={requestRetirement}
@@ -481,6 +528,15 @@ export function VisualWorkspace() {
                           <WorkCard
                             key={JSON.stringify([environmentId, item.id])}
                             entry={entry}
+                            unreadCompletion={Boolean(
+                              item.stage === "complete" &&
+                              item.completedAt &&
+                              readCompletions[completionKey(entry)] !== item.completedAt,
+                            )}
+                            retiring={
+                              retiring?.environmentId === environmentId &&
+                              retiring.item.id === item.id
+                            }
                             dependencies={outstandingDependencies(
                               item,
                               host?.snapshot?.items ?? [],

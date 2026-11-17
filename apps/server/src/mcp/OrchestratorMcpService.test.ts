@@ -3045,6 +3045,32 @@ describe("OrchestratorMcpService provider resolution", () => {
             expected: { instanceId: claudeId, model: "claude-sonnet-5-5", options: [] },
           },
           {
+            name: "Second Mate uses the configured worker default",
+            workspaceRole: "secondMate",
+            target: {},
+            workspaceDefault: {
+              instanceId: codexInstanceId,
+              model: inherited.model,
+              options: [{ id: "reasoningEffort", value: "low" }],
+            },
+            expected: {
+              instanceId: codexInstanceId,
+              model: inherited.model,
+              options: [{ id: "reasoningEffort", value: "low" }],
+            },
+          },
+          {
+            name: "explicit worker choice wins over a configured default",
+            workspaceRole: "secondMate",
+            target: {
+              providerInstanceId: codexInstanceId,
+              model: inherited.model,
+              options: override,
+            },
+            workspaceDefault: { instanceId: claudeId, model: "claude-sonnet-5-5" },
+            expected: { ...inherited, options: [...override, inherited.options[1]] },
+          },
+          {
             name: "Second Mate explicitly selects Codex",
             workspaceRole: "secondMate",
             target: { providerInstanceId: codexInstanceId, model: "gpt-5.4", options: override },
@@ -3147,6 +3173,11 @@ describe("OrchestratorMcpService provider resolution", () => {
             const service = yield* OrchestratorMcpService.OrchestratorMcpService;
             const capabilities = yield* service.capabilities(scope);
             assert.deepEqual(capabilities.inheritedOptions, inherited.options);
+            if ("workspaceDefault" in testCase) {
+              yield* (yield* ServerSettings.ServerSettingsService).updateSettings({
+                workspaceWorkerModelSelection: testCase.workspaceDefault,
+              });
+            }
             yield* service.delegateTask(scope, {
               task: "Review the change.",
               target: yield* decodeTarget(testCase.target),
@@ -3158,7 +3189,7 @@ describe("OrchestratorMcpService provider resolution", () => {
               testCase.expected,
               testCase.name,
             );
-          }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+          }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provideMerge(dependencies))));
         }
       }),
   );
