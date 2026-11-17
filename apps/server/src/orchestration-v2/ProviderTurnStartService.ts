@@ -356,6 +356,20 @@ export const layer: Layer.Layer<
         (candidate) => candidate.id === run.providerThreadId,
       );
       const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
+      const workspacePause = yield* projectionStore.getWorkspacePause(input.threadId);
+      if (
+        workspacePause &&
+        !(
+          workspacePause.owner === 1 &&
+          message &&
+          DateTime.toEpochMillis(message.createdAt) > Date.parse(workspacePause.pausedAt) &&
+          message.createdBy === "user" &&
+          (message.creationSource === "web" || message.creationSource === "mobile") &&
+          message.scheduledTaskId === undefined
+        )
+      ) {
+        return yield* new ProviderTurnStartError({ runId, cause: "Workspace task is On pause." });
+      }
       const checkpointScope = projection.checkpointScopes.find(
         (candidate) => candidate.id === rootNode?.checkpointScopeId,
       );

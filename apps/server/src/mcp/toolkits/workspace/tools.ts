@@ -80,7 +80,8 @@ const startTask = Tool.make("t3_workspace_start_task", {
 
 const update = Tool.make("t3_workspace_update", {
   ...shared,
-  description: "Manage tasks. Second Mates can answer worker requests.",
+  description:
+    "Manage tasks. Second Mates can answer worker requests. Use pause or resume with userRequested=true only when the person explicitly requests that action. Pause stops task execution and moves its card to On pause; resume restores its previous column. Never pause because work is idle, blocked, waiting, or finished.",
   parameters: Schema.Struct({ command: WorkspaceAgentCommand }),
   success: Schema.Struct({
     itemId: TrimmedNonEmptyString,

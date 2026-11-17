@@ -1677,6 +1677,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const queuedMessage = projection.messages.find(
         (candidate) => candidate.id === storedQueuedRun.userMessageId,
       );
+      const workspacePause = yield* projectionStore.getWorkspacePause(threadId);
+      if (
+        workspacePause &&
+        !(
+          workspacePause.owner === 1 &&
+          queuedMessage &&
+          DateTime.toEpochMillis(queuedMessage.createdAt) > Date.parse(workspacePause.pausedAt) &&
+          queuedMessage.createdBy === "user" &&
+          (queuedMessage.creationSource === "web" || queuedMessage.creationSource === "mobile") &&
+          queuedMessage.scheduledTaskId === undefined
+        )
+      )
+        return;
       const modelSelection = queuedRunModelSelection(projection, storedQueuedRun);
       const queuedRun = {
         ...storedQueuedRun,
@@ -4504,6 +4517,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     },
   );
+
+  const refusePausedWorkspaceWork = Effect.fn("Orchestrator.refusePausedWorkspaceWork")(function* (
+    command: OrchestrationV2ServerCommand,
+  ) {
+    if (
+      command.type !== "message.dispatch" &&
+      command.type !== "delegated_task.request" &&
+      command.type !== "delegated_task.remote.request"
+    )
+      return;
+    const threadId = commandThreadId(command);
+    const pause = yield* projectionStore
+      .getWorkspacePause(threadId)
+      .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    if (!pause) return;
+    if (
+      pause.owner === 1 &&
+      command.type === "message.dispatch" &&
+      command.createdBy === "user" &&
+      (command.creationSource === "web" || command.creationSource === "mobile") &&
+      command.scheduledTaskId === undefined
+    )
+      return;
+    return yield* new OrchestratorDispatchError({
+      commandId: command.commandId,
+      commandType: command.type,
+      cause: "This workspace task is On pause. Resume it only when the person explicitly asks.",
+    });
+  });
 
   const refuseAboveRuntimeModeCeiling = Effect.fn(
     "orchestrationV2.dispatch.refuseAboveRuntimeModeCeiling",
@@ -13688,8 +13730,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
     }
 
+    yield* refusePausedWorkspaceWork(command);
     const plan = yield* dispatchOnce(command, sideChatIds).pipe(
       Effect.tap((planned) => refuseAboveRuntimeModeCeiling(command, planned.events)),
+
       Effect.filterOrFail(
         (planned) =>
           planned.events.length > 0 ||

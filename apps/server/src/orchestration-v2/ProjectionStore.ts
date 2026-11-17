@@ -1,4 +1,7 @@
-import { workspaceRoleForThread } from "../workspace/VisualWorkspaceSchema.ts";
+import {
+  workspaceRoleForThread,
+  workspaceThreadPause,
+} from "../workspace/VisualWorkspaceSchema.ts";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
 import { pendingGuestMessageCount, type WorkspaceRole } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
@@ -578,6 +581,12 @@ export interface ProjectionStoreV2Shape {
    */
   readonly getOpenRemoteDelegatedTasks: Effect.Effect<
     ReadonlyArray<{ readonly parentThreadId: ThreadId; readonly taskId: NodeId }>,
+    ProjectionStoreV2Error
+  >;
+  readonly getWorkspacePause: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
+    { readonly pausedAt: string; readonly owner: number } | undefined,
     ProjectionStoreV2Error
   >;
   readonly getTurnStartContext: (
@@ -7446,6 +7455,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),
       getOpenRemoteDelegatedTasks: getOpenRemoteDelegatedTasks.pipe(NodeSqliteClient.readOnly),
       getThreadProjection: readOnReader(getThreadProjection),
+      getWorkspacePause: (threadId) =>
+        workspaceThreadPause(sql, threadId).pipe(
+          Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
+        ),
       getTurnStartContext: readOnReader(getTurnStartContext),
       getTurnStartHistory: readOnReader(getTurnStartHistory),
       getRuntimeRecoveryProjection: readOnReader(getRuntimeRecoveryProjection),

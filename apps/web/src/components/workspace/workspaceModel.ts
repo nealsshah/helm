@@ -9,13 +9,14 @@ import {
   type WorkItem,
 } from "@t3tools/contracts";
 
-export const stages = WorkspaceStage.literals;
-export const stageLabel: Record<WorkItem["stage"], string> = {
+export const stages = [...WorkspaceStage.literals, "paused"] as const;
+export const stageLabel: Record<(typeof stages)[number], string> = {
   planning: "Planning",
   building: "Building",
   reviewing: "Reviewing",
   qa: "QA",
   complete: "Done",
+  paused: "On pause",
 };
 
 export interface BoardItem {
@@ -93,6 +94,7 @@ export function workspaceCardStatus({
   connected: boolean;
   workerTriage: boolean;
 }) {
+  if (item.pausedAt) return cardStatuses.paused;
   if (!connected) return cardStatuses.disconnected;
   if (item.stage === "complete") return cardStatuses.done;
   const available = sessions.filter((session) => !session.archivedAt && !session.deletedAt);

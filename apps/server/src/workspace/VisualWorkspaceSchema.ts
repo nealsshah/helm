@@ -21,6 +21,7 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Fork-owned tables avoid taking a numbered migration from a future upstream release.
   yield* sql`CREATE TABLE IF NOT EXISTS helm_items (id TEXT PRIMARY KEY, body TEXT NOT NULL)`;
+  yield* sql`CREATE TABLE IF NOT EXISTS helm_pause_queue (thread_id TEXT PRIMARY KEY, item_id TEXT NOT NULL)`;
   yield* sql`CREATE TABLE IF NOT EXISTS helm_requests (
     id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES helm_items(id), body TEXT NOT NULL,
     delivery_id TEXT
@@ -188,12 +189,14 @@ export const ensureWorkspaceSchema = Effect.gen(function* () {
     WHERE kind='proposed_plan' AND status='active' AND run_id IS NOT NULL`;
   yield* sql`DROP TRIGGER IF EXISTS helm_turn_checkpoint`;
   // The provider may yield without calling the board tool. Only structured plan evidence can change its stage.
-  yield* sql`CREATE TRIGGER IF NOT EXISTS helm_lead_turn_checkpoint AFTER UPDATE OF status ON orchestration_v2_projection_runs
+  yield* sql`DROP TRIGGER IF EXISTS helm_lead_turn_checkpoint`;
+  yield* sql`CREATE TRIGGER helm_lead_turn_checkpoint AFTER UPDATE OF status ON orchestration_v2_projection_runs
     WHEN NEW.status<>OLD.status AND NEW.status IN ('waiting','completed','interrupted','failed','cancelled')
     BEGIN
       UPDATE helm_items SET body=json_set(body,'$.stage','planning','$.updatedAt',COALESCE(NEW.completed_at,NEW.requested_at))
       WHERE id=(SELECT item_id FROM helm_memberships WHERE thread_id=NEW.thread_id)
         AND COALESCE(json_extract(body,'$.secondMateThreadId'),json_extract(body,'$.primaryThreadId'))=NEW.thread_id
+        AND json_extract(body,'$.pausedAt') IS NULL
         AND json_extract(body,'$.latestReport') IS NULL AND json_extract(body,'$.stage')='building'
         AND json_extract(body,'$.updatedAt')<=NEW.requested_at
         AND NEW.run_id IN (SELECT run_id FROM helm_turn_plans WHERE run_id=NEW.run_id);
@@ -272,4 +275,19 @@ export const workspaceRoleForThread = Effect.fn("VisualWorkspace.roleForThread")
   return (yield* workspaceItemIdForThread(sql, threadId)) === undefined
     ? undefined
     : ("worker" as const);
+});
+
+export const workspaceThreadPause = Effect.fn("VisualWorkspace.threadPause")(function* (
+  sql: SqlClient.SqlClient,
+  threadId: ThreadId,
+) {
+  const [paused] = yield* sql<{
+    pausedAt: string;
+    owner: number;
+  }>`SELECT json_extract(i.body,'$.pausedAt') AS pausedAt,
+    COALESCE(json_extract(i.body,'$.secondMateThreadId'),json_extract(i.body,'$.primaryThreadId'))=m.thread_id AS owner
+    FROM helm_memberships m JOIN helm_items i ON i.id=m.item_id
+    WHERE m.thread_id=${threadId} AND json_extract(i.body,'$.pausedAt') IS NOT NULL
+      AND json_extract(i.body,'$.retiredAt') IS NULL LIMIT 1`;
+  return paused;
 });

@@ -12,6 +12,8 @@ On managed tasks, workers bring questions to the Second Mate first. If the task 
 
 When the Second Mate finishes answering your message, the task appears in **Needs me** with **Reply ready**. Open the card to read the answer and clear the notification. A decision still waiting on you stays in **Needs me** until you answer it.
 
+To stop a task temporarily, tell First Mate or its owner to put it **On pause**. This stops its workers and automatic follow-ups until you explicitly ask to resume. Resuming returns the card to its previous stage. You can hide the On pause column without resuming its tasks.
+
 Retire a task to remove its card from the board and settle its sessions. Click the checkmark on a Done card. For an unfinished task, right-click the card (or focus it and press Shift+F10), choose **Retire task**, and confirm. The **Retired tasks** history icon lets you restore a card to its previous stage.
 
 ## Mirror a task from the external First Mate tool

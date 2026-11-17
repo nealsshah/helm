@@ -87,6 +87,7 @@ export const WorkItem = Schema.Struct({
   secondMateThreadId: Schema.optional(ThreadId),
   directWorker: Schema.optionalKey(Schema.Literal(true)),
   retiredAt: Schema.optional(IsoDateTime),
+  pausedAt: Schema.optional(IsoDateTime),
   canReassignPrimary: Schema.optional(Schema.Boolean),
   sessions: Schema.Array(Session),
   artifacts: Schema.Array(Artifact),
@@ -180,6 +181,22 @@ export const WorkspaceSnapshotRpc = workspaceSnapshotWire.pipe(
   ),
 );
 const WorkspaceAgentManagementCommand = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("pause"),
+    itemId: Text,
+    userRequested: Schema.Literal(true).annotate({
+      description:
+        "True only when the person explicitly asked to pause or resume this task. Never infer this from idle work, blockers, or completed turns.",
+    }),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("resume"),
+    itemId: Text,
+    userRequested: Schema.Literal(true).annotate({
+      description:
+        "True only when the person explicitly asked to pause or resume this task. Never infer this from idle work, blockers, or completed turns.",
+    }),
+  }),
   Schema.Struct({ type: Schema.Literal("ensureSecondMate"), itemId: Text }),
   Schema.Struct({
     type: Schema.Literal("create"),

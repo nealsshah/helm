@@ -188,6 +188,21 @@ const make = Effect.gen(function* () {
 
   const delegate: RemoteDelegation["Service"]["delegate"] = Effect.fn("RemoteDelegation.delegate")(
     function* (scope, input) {
+      const paused = yield* projections.getWorkspacePause(scope.thread.threadId).pipe(
+        Effect.mapError(
+          () =>
+            new OrchestratorMcpFailure({
+              code: "orchestration_error",
+              message: "Could not read workspace pause state.",
+            }),
+        ),
+      );
+      if (paused)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            "This workspace task is On pause. Resume it only when the person explicitly asks.",
+        });
       const parent = yield* threads
         .getThreadRecords(scope.thread.threadId, ["runs"], { includeWorkspaceRole: true })
         .pipe(

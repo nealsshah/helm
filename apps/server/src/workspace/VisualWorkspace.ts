@@ -23,7 +23,10 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
-import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import {
+  ThreadManagementService,
+  isActiveRun,
+} from "../orchestration-v2/ThreadManagementService.ts";
 
 import { makeTaskRetirement } from "./RetireWorkspaceTask.ts";
 import {
@@ -145,8 +148,8 @@ export const makeVisualWorkspace = Effect.gen(function* () {
             ${
               options?.includeWorkerRequests
                 ? sql``
-                : sql`WHERE json_extract(i.body,'$.secondMateThreadId') IS NULL
-              OR json_extract(r.body,'$.threadId')=json_extract(i.body,'$.secondMateThreadId')`
+                : sql`WHERE json_extract(i.body,'$.pausedAt') IS NULL AND (json_extract(i.body,'$.secondMateThreadId') IS NULL
+              OR json_extract(r.body,'$.threadId')=json_extract(i.body,'$.secondMateThreadId'))`
             }
             ORDER BY r.rowid`;
           const replies = options?.includeWorkerRequests
@@ -157,7 +160,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
                 run_id: string;
                 completed_at: string;
                 excerpt: string;
-              }>`SELECT item_id,thread_id,run_id,completed_at,excerpt FROM helm_owner_ready_replies`;
+              }>`SELECT item_id,thread_id,run_id,completed_at,excerpt FROM helm_owner_ready_replies r WHERE NOT EXISTS(SELECT 1 FROM helm_items i WHERE i.id=r.item_id AND json_extract(i.body,'$.pausedAt') IS NOT NULL)`;
           return {
             orchestratorThreadIds: yield* orchestrators(),
             items: [
@@ -417,7 +420,10 @@ export const makeVisualWorkspace = Effect.gen(function* () {
   });
 
   const mutate = Effect.fn("VisualWorkspace.mutate")(function* (
-    cmd: Exclude<WorkspaceCommand, { type: "respond" | "ensureSecondMate" | "restore" | "retire" }>,
+    cmd: Exclude<
+      WorkspaceCommand,
+      { type: "respond" | "ensureSecondMate" | "restore" | "retire" | "pause" | "resume" }
+    >,
     actor?: { threadId: ThreadId },
     checkpoint = false,
   ) {
@@ -605,7 +611,10 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         // Workers and imported files have independent clocks. Arrival at the owning server orders reports.
         item = {
           ...item,
-          stage: owner && cmd.threadId !== owner ? item.stage : (cmd.stage ?? item.stage),
+          stage:
+            item.pausedAt || (owner && cmd.threadId !== owner)
+              ? item.stage
+              : (cmd.stage ?? item.stage),
           latestReport: {
             threadId: cmd.threadId,
             text: cmd.text,
@@ -628,7 +637,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
           ...item,
           title: cmd.title ?? item.title,
           scope: cmd.scope ?? item.scope,
-          stage: cmd.stage ?? item.stage,
+          stage: item.pausedAt ? item.stage : (cmd.stage ?? item.stage),
           attention: cmd.attention ?? item.attention,
           priority: cmd.priority ?? item.priority,
           dependencies: cmd.dependencies ?? item.dependencies,
@@ -786,6 +795,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
       FROM helm_requests r JOIN helm_items i ON i.id=r.item_id
       JOIN orchestration_v2_projection_threads t ON t.thread_id=json_extract(i.body,'$.secondMateThreadId')
       WHERE t.deleted_at IS NULL AND t.archived_at IS NULL AND json_extract(i.body,'$.retiredAt') IS NULL
+        AND json_extract(i.body,'$.pausedAt') IS NULL
         AND json_extract(r.body,'$.status')='open' AND json_extract(r.body,'$.threadId')<>t.thread_id
         ${itemId === undefined ? sql`` : sql`AND i.id=${itemId}`}
         AND NOT EXISTS(SELECT 1 FROM orchestration_v2_projection_messages m
@@ -875,12 +885,126 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     yield* sql`UPDATE helm_requests SET body=json_set(body,'$.status','obsolete','$.resolvedAt',${retiredAt},'$.response','Task retired.') WHERE item_id=${item.id} AND json_extract(body,'$.status')='open'`;
   });
 
+  const finishPauses = Effect.fn("VisualWorkspace.finishPauses")(function* (
+    itemId?: string,
+    actorThreadId?: ThreadId,
+  ) {
+    const members = yield* sql<{ thread_id: string }>`SELECT q.thread_id FROM helm_pause_queue q
+      JOIN helm_items i ON i.id=q.item_id WHERE json_extract(i.body,'$.pausedAt') IS NOT NULL
+      ${itemId ? sql`AND q.item_id=${itemId}` : sql``}
+      ORDER BY q.thread_id=${actorThreadId ?? ""}`;
+    let failed = false;
+    for (const member of members) {
+      yield* Effect.gen(function* () {
+        const threadId = ThreadId.make(member.thread_id);
+        const shell = yield* threads.getThreadShell(threadId);
+        if (!shell || shell.deletedAt || shell.archivedAt) {
+          yield* sql`DELETE FROM helm_pause_queue WHERE thread_id=${threadId}`;
+          return;
+        }
+        yield* threads.dispatch({
+          type: "thread.stop",
+          threadId,
+          commandId: CommandId.make(yield* random.uuidV4()),
+          reason: "Workspace task paused at the person's request.",
+          stopDelegatedTasks: false,
+        });
+        const { runs, subagents } = yield* threads.getThreadRecords(threadId, [
+          "runs",
+          "subagents",
+        ]);
+        for (const task of subagents) {
+          if (task.origin !== "app_owned" || task.remoteChild === undefined) continue;
+          const commandId = CommandId.make(yield* random.uuidV4());
+          yield* threads.dispatch(
+            task.result === null
+              ? {
+                  type: "delegated_task.remote.complete",
+                  commandId,
+                  parentThreadId: threadId,
+                  taskId: task.id,
+                  status: "interrupted",
+                  result: "Workspace task paused at the person's request.",
+                }
+              : {
+                  type: "delegated_task.remote.stop",
+                  commandId,
+                  parentThreadId: threadId,
+                  taskId: task.id,
+                },
+          );
+        }
+        for (const run of runs) {
+          if (run.status === "queued") {
+            yield* threads.dispatch({
+              type: "queued-run.cancel",
+              threadId,
+              runId: run.id,
+              commandId: CommandId.make(yield* random.uuidV4()),
+            });
+          } else if (isActiveRun(run)) {
+            yield* threads.forceStopThread({ threadId, runId: run.id });
+          }
+        }
+        yield* sql`DELETE FROM helm_pause_queue WHERE thread_id=${threadId}`;
+      }).pipe(
+        Effect.catchCause((cause) => {
+          failed = true;
+          return Effect.logWarning("Could not pause workspace session", {
+            threadId: member.thread_id,
+            cause,
+          });
+        }),
+      );
+    }
+    if (failed && itemId)
+      return yield* fail(
+        "The task is On pause, but some sessions are still stopping. Helm will retry.",
+      );
+  });
+
+  const setPause = Effect.fn("VisualWorkspace.setPause")(function* (
+    cmd: Extract<WorkspaceCommand, { type: "pause" | "resume" }>,
+    actor?: { threadId: ThreadId; subagent?: boolean },
+  ) {
+    if (cmd.userRequested !== true)
+      return yield* fail("Only an explicit user request can pause or resume a task.");
+    const [row] = yield* sql<{ body: string }>`SELECT body FROM helm_items WHERE id=${cmd.itemId}`;
+    if (!row) return yield* fail("This task does not exist.");
+    const item = yield* decodeItem(row.body);
+    if (item.retiredAt) return yield* fail("Restore the retired task first.");
+    if (
+      actor &&
+      (actor.subagent ||
+        (actor.threadId !== workspaceOwnerThreadId(item) &&
+          !(yield* orchestrators()).includes(actor.threadId)))
+    )
+      return yield* fail("Only the First Mate or this task's owner can act on a pause request.");
+    if (cmd.type === "resume") {
+      yield* sql`DELETE FROM helm_pause_queue WHERE item_id=${item.id}`;
+      yield* sql`UPDATE helm_items SET body=json_remove(json_set(body,'$.updatedAt',${yield* now}),'$.pausedAt') WHERE id=${item.id}`;
+      return;
+    }
+    if (!item.pausedAt) {
+      yield* sql`UPDATE helm_items SET body=json_set(body,'$.pausedAt',${yield* now},'$.updatedAt',${yield* now}) WHERE id=${item.id}`;
+    }
+    yield* attachWorkspaceDescendants(sql, item.id);
+    yield* sql`INSERT OR IGNORE INTO helm_pause_queue(thread_id,item_id)
+      SELECT m.thread_id,m.item_id FROM helm_memberships m WHERE m.item_id=${item.id}
+      AND NOT EXISTS(SELECT 1 FROM helm_orchestrators o WHERE o.thread_id=m.thread_id)`;
+  });
+
   const command: VisualWorkspace["Service"]["command"] = (cmd, actor) =>
     lock.withPermits(1)(
       Effect.gen(function* () {
         if (cmd.type === "respond" || (!actor && cmd.type === "obsolete"))
           yield* reconcileAccepted(cmd.requestId);
-        if (cmd.type === "retire" || cmd.type === "restore") {
+        if (cmd.type === "pause" || cmd.type === "resume") {
+          yield* sql.withTransaction(setPause(cmd, actor));
+          if (cmd.type === "pause")
+            yield* finishPauses(cmd.itemId, actor?.threadId).pipe(Effect.ensuring(notify()));
+          else yield* notify();
+        } else if (cmd.type === "retire" || cmd.type === "restore") {
           if (actor) return yield* fail("Only a person can retire or restore a task.");
           yield* sql.withTransaction(setRetirement(cmd));
           if (cmd.type === "retire")
@@ -985,6 +1109,7 @@ export const makeVisualWorkspace = Effect.gen(function* () {
     resumeWorkerQuestions: () =>
       lock.withPermits(1)(
         finishRetirements().pipe(
+          Effect.andThen(finishPauses()),
           Effect.andThen(reviewWorkerRequests()),
           Effect.mapError(workspaceError),
         ),

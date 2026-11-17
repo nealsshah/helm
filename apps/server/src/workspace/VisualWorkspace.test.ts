@@ -60,6 +60,7 @@ const dependencies = Layer.mergeAll(
   NodeCrypto.layer,
 );
 const testLayer = Threads.layer.pipe(Layer.provideMerge(dependencies));
+const isAgentCommand = Schema.is(WorkspaceAgentCommand);
 const decodeCommand = Schema.decodeUnknownEffect(WorkspaceAgentCommand);
 const primary = ThreadId.make("primary");
 const worker = ThreadId.make("worker");
@@ -102,6 +103,78 @@ const fixture = Effect.gen(function* () {
   })})`;
   return w;
 });
+
+it.effect(
+  "holds an explicitly paused task idle through reports and wakes until explicit resume",
+  () =>
+    Effect.gen(function* () {
+      const workspace = yield* fixture;
+      const t3 = yield* Orchestrator.OrchestratorV2;
+      const lead = (yield* workspace.command({ type: "ensureSecondMate", itemId: "build" }))
+        .items[0]!.secondMateThreadId!;
+      yield* workspace.command(
+        { type: "update", itemId: "build", stage: "reviewing" },
+        { threadId: lead },
+      );
+      const send = (id: string, threadId: ThreadId, human = false) =>
+        t3.dispatch({
+          type: "message.dispatch",
+          threadId,
+          commandId: CommandId.make(id),
+          messageId: MessageId.make(id),
+          text: "Continue",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: human ? "user" : "agent",
+          creationSource: human ? "web" : "mcp",
+        });
+      yield* send("pause-active", worker);
+      yield* send("pause-queued", worker);
+      expect(
+        (yield* Effect.flip(
+          workspace.command(
+            { type: "pause", itemId: "build", userRequested: true },
+            { threadId: worker },
+          ),
+        )).message,
+      ).toContain("owner");
+      expect(isAgentCommand({ type: "pause", itemId: "build" })).toBe(false);
+      const paused = yield* workspace.command(
+        { type: "pause", itemId: "build", userRequested: true },
+        { threadId: lead },
+      );
+      expect(paused.items[0]?.pausedAt).toBeDefined();
+      expect(paused.items[0]?.stage).toBe("reviewing");
+      expect(
+        (yield* t3.getThreadRecords(worker, ["runs"])).runs.every(
+          (run) => run.status === "interrupted" || run.status === "cancelled",
+        ),
+      ).toBe(true);
+      yield* workspace.checkpoint(lead, {
+        stage: "complete",
+        needsAttention: false,
+        summary: "Late report.",
+      });
+      expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
+      expect((yield* Effect.flip(send("paused-auto", lead))).cause).toContain("On pause");
+      yield* TestClock.adjust(1);
+      yield* send("paused-human", lead, true);
+      expect((yield* workspace.get()).items[0]?.pausedAt).toBeDefined();
+      expect((yield* Effect.flip(send("paused-worker", worker))).cause).toContain("On pause");
+      yield* workspace.command(
+        { type: "resume", itemId: "build", userRequested: true },
+        { threadId: lead },
+      );
+      expect((yield* workspace.get()).items[0]?.pausedAt).toBeUndefined();
+      expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
+      yield* send("resumed-worker", worker);
+      expect(
+        (yield* t3.getThreadRecords(worker, ["runs"])).runs.some(
+          (run) => run.status === "starting",
+        ),
+      ).toBe(true);
+    }).pipe(Effect.provide(testLayer)),
+);
 
 it.effect(
   "retires all sessions, including busy workers, and restores the task without restarting work",

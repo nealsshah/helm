@@ -163,6 +163,7 @@ function startWithMissingWorktree(
             Effect.succeedSome({ workspaceRoot: "/tmp/provider-turn-start-project" } as never),
         }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getWorkspacePause: () => Effect.undefined,
           getThreadRecords: () => {
             projectionReadCount += 1;
             return Effect.succeed(projection);
@@ -962,6 +963,7 @@ function makeLocalCommandHarness(input: {
             } as never),
         }),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getWorkspacePause: () => Effect.undefined,
           getThreadRecords,
           getTurnStartContext,
           getRuntimeRecoveryProjection: () =>

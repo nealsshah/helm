@@ -5,6 +5,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { useState } from "react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
+  PauseIcon,
   CircleDashedIcon,
   CircleCheckIcon,
   CircleDotIcon,
@@ -52,6 +53,7 @@ import {
 import { useWorkspaceCommand, useWorkspaceState } from "./workspaceState";
 
 const stageIcons = {
+  paused: PauseIcon,
   planning: CircleDashedIcon,
   building: CircleDotIcon,
   reviewing: PullRequestGlyph.pullRequest,
@@ -214,10 +216,31 @@ export function VisualWorkspace() {
       ? null
       : storedTarget;
   const [showOrchestrator, setShowOrchestrator] = useState(false);
+  const [showPaused, setShowPaused] = useState(() => {
+    try {
+      return localStorage.getItem("helm.workspace.show-paused") !== "false";
+    } catch {
+      return true;
+    }
+  });
+  function togglePausedColumn() {
+    const next = !showPaused;
+    try {
+      localStorage.setItem("helm.workspace.show-paused", String(next));
+    } catch {}
+    setShowPaused(next);
+  }
   const [returnTo, setReturnTo] = useWorkspaceTabValue("return-to", null, Target);
   const queue = new Map<string, QueueEntry>();
   const waitingItems = new Set<string>();
   for (const entry of state.requests) {
+    if (
+      state.items.some(
+        ({ environmentId, item }) =>
+          environmentId === entry.environmentId && item.id === entry.itemId && item.pausedAt,
+      )
+    )
+      continue;
     const key = JSON.stringify([entry.environmentId, entry.threadId]);
     if (!queue.has(key) || (queue.get(key)?.replyId && !entry.replyId)) queue.set(key, entry);
     if (entry.itemId) waitingItems.add(JSON.stringify([entry.environmentId, entry.itemId]));
@@ -290,6 +313,10 @@ export function VisualWorkspace() {
       >
         {!sidebarVisible && <h1 className="text-lg font-medium tracking-tight">Helm</h1>}
         <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="sm" aria-pressed={showPaused} onClick={togglePausedColumn}>
+            <PauseIcon />
+            {showPaused ? "Hide On pause" : "Show On pause"}
+          </Button>
           <RetiredTasksMenu hosts={hosts} />
           <Button
             variant="outline"
@@ -420,57 +447,64 @@ export function VisualWorkspace() {
             </div>
           )}
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-4 pt-2 pb-4">
-            {stages.map((stage) => {
-              const StageIcon = stageIcons[stage];
-              const entries = cards.filter((card) => card.item.stage === stage);
-              return (
-                <section
-                  aria-label={stageLabel[stage]}
-                  key={stage}
-                  className="flex min-h-0 min-w-40 flex-1 flex-col @2xl/board:min-w-0"
-                >
-                  <h2 className="flex shrink-0 items-center gap-2 border-b border-border/70 px-1 py-2.5 text-sm font-medium">
-                    <StageIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-3.5",
-                        stage === "complete" ? "text-success" : "text-muted-foreground",
-                      )}
-                    />
-                    <span>{stageLabel[stage]}</span>
-                    <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">
-                      {entries.length}
-                    </span>
-                  </h2>
-                  <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-y-contain px-0.5 py-2.5">
-                    {entries.map((entry) => {
-                      const { environmentId, item } = entry;
-                      const host = hosts.find((entry) => entry.environmentId === environmentId);
-                      return (
-                        <WorkCard
-                          key={JSON.stringify([environmentId, item.id])}
-                          entry={entry}
-                          dependencies={outstandingDependencies(item, host?.snapshot?.items ?? [])}
-                          workerTriage={Boolean(host?.workerTriage && item.secondMateThreadId)}
-                          connected={host?.connected ?? false}
-                          sessions={state.shells.filter(
-                            (shell) =>
-                              shell.environmentId === environmentId &&
-                              itemHasThread(item, shell.id),
-                          )}
-                          selected={
-                            target?.itemId === item.id && target.environmentId === environmentId
-                          }
-                          retirement={Boolean(host?.connected && host.retirement)}
-                          onRetire={requestRetirement}
-                          onClick={() => openItem(entry)}
-                        />
-                      );
-                    })}
-                  </div>
-                </section>
-              );
-            })}
+            {stages
+              .filter((stage) => stage !== "paused" || showPaused)
+              .map((stage) => {
+                const StageIcon = stageIcons[stage];
+                const entries = cards.filter(
+                  (card) => (card.item.pausedAt ? "paused" : card.item.stage) === stage,
+                );
+                return (
+                  <section
+                    aria-label={stageLabel[stage]}
+                    key={stage}
+                    className="flex min-h-0 min-w-40 flex-1 flex-col @2xl/board:min-w-0"
+                  >
+                    <h2 className="flex shrink-0 items-center gap-2 border-b border-border/70 px-1 py-2.5 text-sm font-medium">
+                      <StageIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3.5",
+                          stage === "complete" ? "text-success" : "text-muted-foreground",
+                        )}
+                      />
+                      <span>{stageLabel[stage]}</span>
+                      <span className="ml-auto text-xs font-normal tabular-nums text-muted-foreground">
+                        {entries.length}
+                      </span>
+                    </h2>
+                    <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-y-contain px-0.5 py-2.5">
+                      {entries.map((entry) => {
+                        const { environmentId, item } = entry;
+                        const host = hosts.find((entry) => entry.environmentId === environmentId);
+                        return (
+                          <WorkCard
+                            key={JSON.stringify([environmentId, item.id])}
+                            entry={entry}
+                            dependencies={outstandingDependencies(
+                              item,
+                              host?.snapshot?.items ?? [],
+                            )}
+                            workerTriage={Boolean(host?.workerTriage && item.secondMateThreadId)}
+                            connected={host?.connected ?? false}
+                            sessions={state.shells.filter(
+                              (shell) =>
+                                shell.environmentId === environmentId &&
+                                itemHasThread(item, shell.id),
+                            )}
+                            selected={
+                              target?.itemId === item.id && target.environmentId === environmentId
+                            }
+                            retirement={Boolean(host?.connected && host.retirement)}
+                            onRetire={requestRetirement}
+                            onClick={() => openItem(entry)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
           </div>
         </section>
         <WorkspaceSidePane open={hasPanel}>
