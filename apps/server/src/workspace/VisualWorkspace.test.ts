@@ -177,11 +177,31 @@ it.effect(
         }),
       );
       expect(lateCompletion.message).toContain("completionEvidence");
+      expect(
+        (yield* Effect.flip(
+          workspace.checkpoint(lead, {
+            stage: "qa",
+            needsAttention: false,
+            summary: "Late progress.",
+          }),
+        )).message,
+      ).toContain('type "resume"');
       yield* workspace.checkpoint(lead, {
+        stage: "reviewing",
+        needsAttention: false,
+        summary: "Status only. Still paused.",
+      });
+      expect((yield* workspace.get()).items[0]?.latestReport?.text).toBe(
+        "Status only. Still paused.",
+      );
+      yield* workspace.checkpoint(worker, {
         stage: "qa",
         needsAttention: false,
-        summary: "Late progress.",
+        summary: "Worker report while paused.",
       });
+      expect((yield* workspace.get()).items[0]?.latestReport?.text).toBe(
+        "Worker report while paused.",
+      );
       expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
       expect((yield* Effect.flip(send("paused-auto", lead))).cause).toContain("On pause");
       yield* TestClock.adjust(1);
