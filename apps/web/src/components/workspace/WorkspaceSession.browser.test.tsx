@@ -40,13 +40,12 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   };
   const first = threadWithHistory("shape-sample", 1);
   const time = "2026-11-06T20:00:00Z";
-  const archivedWorker: FakeThread = {
-    ...threadWithHistory("archived-worker", 1),
-    archived: true,
+  const previousWorker: FakeThread = {
+    ...threadWithHistory("previous-worker", 1),
     runtimeRequests: [
       {
-        id: RuntimeRequestId.make("archived-approval"),
-        nodeId: NodeId.make("archived-node"),
+        id: RuntimeRequestId.make("previous-approval"),
+        nodeId: NodeId.make("previous-node"),
         providerTurnId: null,
         nativeRequestRef: null,
         kind: "command",
@@ -134,7 +133,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
       title: "Shape checkout",
       primaryThreadId: first.id,
       secondMateThreadId: first.id,
-      sessions: [{ threadId: archivedWorker.id, role: "Previous worker" }],
+      sessions: [{ threadId: previousWorker.id, role: "Previous worker" }],
       stage: "planning",
     },
     {
@@ -148,7 +147,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     },
   ];
   using env = installFakeEnvironment(
-    [first, second, archivedWorker, askingWorker, retiredWorker, direct],
+    [first, second, previousWorker, askingWorker, retiredWorker, direct],
     {
       items,
       requests: [
@@ -215,7 +214,12 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await expect
     .element(screen.getByText("Answer 0 for direct-worker.", { exact: true }))
     .toBeVisible();
-  await screen.getByRole("link", { name: "Open full session" }).click();
+  void router.navigate({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: ENVIRONMENT_ID, threadId: direct.id },
+    state: { fromWorkspace: true },
+  });
+  await expect.element(screen.getByRole("link", { name: "Back to workspace" })).toBeVisible();
   await expectRole("Worker");
   await screen.getByRole("link", { name: "Back to workspace" }).click();
   await expectRole("Worker");
@@ -223,7 +227,11 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await expect.element(page.getByRole("menuitem", { name: "Restore Retired task" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect
-    .element(board.getByRole("region", { name: "Building" }).getByText("Awaiting Second Mate"))
+    .element(
+      board
+        .getByRole("region", { name: "Building" })
+        .getByRole("button", { name: /Implement checkout/ }),
+    )
     .toBeVisible();
   await expect
     .element(
@@ -234,7 +242,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
     .not.toBeInTheDocument();
   await board
     .getByRole("region", { name: "Needs me" })
-    .getByRole("button", { name: "Thread archived-worker", exact: true })
+    .getByRole("button", { name: "Thread previous-worker", exact: true })
     .click();
   await expectRole("Worker");
   await screen.getByRole("button", { name: "Second Mate" }).click();
@@ -252,7 +260,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await editor.fill("Unsent implementation direction");
   await board
     .getByRole("region", { name: "Needs me" })
-    .getByRole("button", { name: "Thread archived-worker", exact: true })
+    .getByRole("button", { name: "Thread previous-worker", exact: true })
     .click();
   await expectRole("Worker");
   await screen.getByRole("button", { name: "Second Mate" }).click();
@@ -267,7 +275,11 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await screen.getByRole("button", { name: /Workers \(1\)/ }).click();
   await page.getByRole("menuitemcheckbox", { name: "Show worker activity" }).click();
   await expect.element(coordination).toBeVisible();
-  await screen.getByRole("link", { name: "Open full session" }).click();
+  void router.navigate({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: ENVIRONMENT_ID, threadId: second.id },
+    state: { fromWorkspace: true },
+  });
   await expect
     .element(screen.getByRole("complementary", { name: "Work panel" }))
     .not.toBeInTheDocument();
@@ -277,7 +289,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   await expectRole("Second Mate");
   await expect.element(editor).toHaveTextContent("Unsent implementation direction");
   await expect
-    .element(board.getByRole("button", { name: "Thread archived-worker", exact: true }))
+    .element(board.getByRole("button", { name: "Thread previous-worker", exact: true }))
     .toBeVisible();
   await screen.getByRole("button", { name: "First Mate", exact: true }).click();
   await screen.getByRole("tab", { name: first.title }).click();
@@ -322,7 +334,7 @@ it("keeps a work conversation editable with a maximized full-session panel and r
   expect(env.latestThread?.modelSelection).toEqual({
     instanceId: "codex",
     model: "gpt-6.1-sol",
-    options: [{ id: "reasoningEffort", value: "high" }],
+    options: [{ id: "reasoningEffort", value: "low" }],
   });
   await screen.getByRole("tab", { name: second.title }).click();
   await expect.element(screen.getByLabelText("Session project: Meow")).toBeVisible();

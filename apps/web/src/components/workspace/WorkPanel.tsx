@@ -1,14 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  ArrowLeftIcon,
-  CheckIcon,
-  ExternalLinkIcon,
-  LayersIcon,
-  LinkIcon,
-  XIcon,
-} from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowLeftIcon, CheckIcon, LayersIcon, LinkIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
 import { ComposerHandleContext } from "../../composerHandleContext";
 import { serverEnvironment } from "../../state/server";
@@ -23,6 +16,8 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import { WorkPanelServiceLinks } from "./WorkPanelServiceLinks";
+import { workPanelLinks } from "./workPanelLinks";
 import { SessionProjectPicker } from "./SessionProjectPicker";
 import { useDelivery } from "./WorkspaceForms";
 import { runtimeLabel, safeArtifactUrl, stageLabel, usesSecondMate } from "./workspaceModel";
@@ -213,6 +208,21 @@ export function WorkPanel({
     );
     return [{ ...session, title: source?.title ?? session.role, status }];
   });
+  const associatedThreadIds = new Set(
+    item
+      ? [
+          item.primaryThreadId,
+          item.secondMateThreadId,
+          ...item.sessions.map((session) => session.threadId),
+        ]
+      : [threadId],
+  );
+  const links = workPanelLinks({
+    item,
+    shells: state.shells.filter(
+      (entry) => entry.environmentId === environmentId && associatedThreadIds.has(entry.id),
+    ),
+  });
   const activeWorkers = workerRows.filter((row) => row.status === "Running");
   const orderedWorkers = [
     ...activeWorkers,
@@ -247,13 +257,6 @@ export function WorkPanel({
               <h2 className="truncate text-sm font-semibold">{shell?.title ?? "Task"}</h2>
             )}
           </div>
-          {shell && (
-            <SessionProjectPicker
-              environmentId={environmentId}
-              projectId={shell.projectId}
-              threadId={shell.id}
-            />
-          )}
           {item && hasLead && !openLead && (
             <Button
               variant="ghost"
@@ -269,6 +272,15 @@ export function WorkPanel({
               <ArrowLeftIcon /> Second Mate
             </Button>
           )}
+          {shell && (
+            <SessionProjectPicker
+              environmentId={environmentId}
+              projectId={shell.projectId}
+              threadId={shell.id}
+            />
+          )}
+          <WorkPanelServiceLinks service="Linear" links={links.linear} />
+          <WorkPanelServiceLinks service="GitHub" links={links.github} />
           {item && workerRows.length > 0 && (hasLead || workerRows.length > 1) && (
             <Menu>
               <MenuTrigger
@@ -331,7 +343,7 @@ export function WorkPanel({
               </MenuPopup>
             </Menu>
           )}
-          {item && item.artifacts.length > 0 && (
+          {links.artifacts.length > 0 && (
             <Menu>
               <MenuTrigger
                 render={<Button variant="ghost" size="icon-sm" />}
@@ -340,7 +352,7 @@ export function WorkPanel({
                 <LinkIcon />
               </MenuTrigger>
               <MenuPopup align="end">
-                {item.artifacts.map((artifact) => {
+                {links.artifacts.map((artifact) => {
                   const url = safeArtifactUrl(artifact.url);
                   return url ? (
                     <MenuItem
@@ -357,17 +369,6 @@ export function WorkPanel({
                 })}
               </MenuPopup>
             </Menu>
-          )}
-          {threadId && !needsLead && (
-            <Link
-              to="/$environmentId/$threadId"
-              params={{ environmentId, threadId }}
-              state={{ fromWorkspace: true }}
-              className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset"
-              aria-label="Open full session"
-            >
-              <ExternalLinkIcon size={16} />
-            </Link>
           )}
           <Button variant="ghost" size="icon-sm" aria-label="Close work panel" onClick={close}>
             <XIcon />
