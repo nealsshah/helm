@@ -39,11 +39,7 @@ const workspaceShellsAtom = Atom.make((get) => {
       snapshot.items.flatMap((item) =>
         item.retiredAt
           ? []
-          : [
-              item.primaryThreadId,
-              ...(item.secondMateThreadId ? [item.secondMateThreadId] : []),
-              ...item.sessions.map((s) => s.threadId),
-            ],
+          : [item.primaryThreadId, ...(item.secondMateThreadId ? [item.secondMateThreadId] : [])],
       ),
     );
     for (const [id, role] of get(workspaceTriageRoles(environmentId))) {
