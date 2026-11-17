@@ -12,6 +12,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   WorkspaceAgentCommand,
+  type WorkspaceCommand,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
@@ -130,6 +131,23 @@ it.effect(
         });
       yield* send("pause-active", worker);
       yield* send("pause-queued", worker);
+      const legacyPause = {
+        type: "update",
+        itemId: "build",
+        attention: "paused",
+      } satisfies WorkspaceCommand;
+      expect(
+        (yield* Effect.flip(workspace.command(legacyPause, { threadId: lead }))).message,
+      ).toContain('type "pause" with userRequested: true');
+      expect(isAgentCommand(legacyPause)).toBe(false);
+      expect((yield* workspace.get()).items[0]?.pausedAt).toBeUndefined();
+      expect(
+        (yield* t3.getThreadRecords(worker, ["runs"])).runs.some(
+          (run) => run.status === "starting",
+        ),
+      ).toBe(true);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE helm_items SET body=json_set(body,'$.attention','paused') WHERE id='build'`;
       expect(
         (yield* Effect.flip(
           workspace.command(
@@ -144,6 +162,7 @@ it.effect(
         { threadId: lead },
       );
       expect(paused.items[0]?.pausedAt).toBeDefined();
+      expect(paused.items[0]?.attention).toBe("none");
       expect(paused.items[0]?.stage).toBe("reviewing");
       expect(
         (yield* t3.getThreadRecords(worker, ["runs"])).runs.every(
@@ -169,11 +188,13 @@ it.effect(
       yield* send("paused-human", lead, true);
       expect((yield* workspace.get()).items[0]?.pausedAt).toBeDefined();
       expect((yield* Effect.flip(send("paused-worker", worker))).cause).toContain("On pause");
+      yield* sql`UPDATE helm_items SET body=json_set(body,'$.attention','paused') WHERE id='build'`;
       yield* workspace.command(
         { type: "resume", itemId: "build", userRequested: true },
         { threadId: lead },
       );
       expect((yield* workspace.get()).items[0]?.pausedAt).toBeUndefined();
+      expect((yield* workspace.get()).items[0]?.attention).toBe("none");
       expect((yield* workspace.get()).items[0]?.stage).toBe("reviewing");
       yield* send("resumed-worker", worker);
       expect(

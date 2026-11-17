@@ -219,7 +219,15 @@ const WorkspaceAgentManagementCommand = Schema.Union([
     title: Schema.optional(Text),
     scope: Schema.optional(Schema.String),
     stage: Schema.optional(wireStage),
-    attention: Schema.optional(WorkspaceAttention),
+    attention: Schema.optional(
+      WorkspaceAttention.check(
+        Schema.makeFilter((attention) => attention !== "paused", {
+          expected:
+            'active, waiting, or none. To pause, use type "pause" with userRequested: true only after an explicit user request',
+          toJsonSchema: () => [{ enum: ["active", "waiting", "none"] }, true],
+        }),
+      ),
+    ),
     priority: Schema.optional(Schema.Int),
     dependencies: Schema.optional(Schema.Array(Dependency)),
   }),

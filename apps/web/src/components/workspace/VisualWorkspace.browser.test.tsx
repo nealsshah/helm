@@ -468,3 +468,41 @@ it("keeps a completion unread until opened and notices a later completion", asyn
     expect(remounted.container.querySelector(".workspace-completion-pulse")).toBeNull(),
   );
 });
+
+it("places paused work before Planning and lets the column be hidden", async () => {
+  const previous = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1440, 900);
+  await using _viewport = {
+    [Symbol.asyncDispose]: () => page.viewport(previous.width, previous.height),
+  };
+  runWorkspace.mockReset();
+  const item = { ...work("Paused review", "qa"), pausedAt: timestamp };
+  snapshot = {
+    hosts: [],
+    items: [{ environmentId: env, item }],
+    requests: [],
+    shells: [],
+  };
+  const key = "helm.workspace.show-paused";
+  const saved = localStorage.getItem(key);
+  using _restore = {
+    [Symbol.dispose]: () =>
+      saved === null ? localStorage.removeItem(key) : localStorage.setItem(key, saved),
+  };
+  localStorage.removeItem(key);
+  await using screen = await render(
+    <SidebarProvider>
+      <VisualWorkspace />
+    </SidebarProvider>,
+  );
+  const paused = screen.getByRole("region", { name: "On pause", exact: true });
+  const planning = screen.getByRole("region", { name: "Planning", exact: true });
+  await expect.element(paused.getByText("Paused review", { exact: true })).toBeVisible();
+  expect(
+    paused.element().compareDocumentPosition(planning.element()) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
+  await screen.getByRole("button", { name: "Hide On pause", exact: true }).click();
+  await expect.element(paused).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: "Show On pause", exact: true }).click();
+  await expect.element(paused.getByText("Paused review", { exact: true })).toBeVisible();
+});

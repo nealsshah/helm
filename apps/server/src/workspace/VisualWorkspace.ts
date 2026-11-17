@@ -643,6 +643,10 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         break;
       }
       case "update": {
+        if (cmd.attention === "paused")
+          return yield* fail(
+            'To pause, use type "pause" with userRequested: true only after an explicit user request.',
+          );
         for (const dependency of cmd.dependencies ?? []) {
           if (dependency.itemId === item.id) return yield* fail("An item cannot depend on itself.");
           const [exists] = yield* sql`SELECT id FROM helm_items WHERE id=${dependency.itemId}`;
@@ -1003,6 +1007,8 @@ export const makeVisualWorkspace = Effect.gen(function* () {
           !(yield* orchestrators()).includes(actor.threadId)))
     )
       return yield* fail("Only the First Mate or this task's owner can act on a pause request.");
+    if (item.attention === "paused")
+      yield* sql`UPDATE helm_items SET body=json_set(body,'$.attention','none') WHERE id=${item.id}`;
     if (cmd.type === "resume") {
       yield* sql`DELETE FROM helm_pause_queue WHERE item_id=${item.id}`;
       yield* sql`UPDATE helm_items SET body=json_remove(json_set(body,'$.updatedAt',${yield* now}),'$.pausedAt') WHERE id=${item.id}`;

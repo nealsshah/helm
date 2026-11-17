@@ -9,7 +9,7 @@ import {
   type WorkItem,
 } from "@t3tools/contracts";
 
-export const stages = [...WorkspaceStage.literals, "paused"] as const;
+export const stages = ["paused", ...WorkspaceStage.literals] as const;
 export const stageLabel: Record<(typeof stages)[number], string> = {
   planning: "Planning",
   building: "Building",
