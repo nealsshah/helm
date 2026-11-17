@@ -584,6 +584,15 @@ export const makeVisualWorkspace = Effect.gen(function* () {
         return;
       }
       case "report": {
+        if (
+          checkpoint &&
+          item.pausedAt &&
+          cmd.stage !== item.stage &&
+          cmd.threadId === (workspaceOwnerThreadId(item) ?? item.primaryThreadId)
+        )
+          return yield* fail(
+            'This task is On pause. Use t3_workspace_update with type "resume", this itemId, and userRequested: true before changing stage or delegating work when the person explicitly asks to continue or assigns fresh work. Keep it paused for status questions or discussion.',
+          );
         if (!member(cmd.threadId))
           return yield* fail("The reporting thread is not associated with this item.");
         const reportedAt = cmd.reportedAt ?? timestamp;

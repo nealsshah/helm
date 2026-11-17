@@ -193,7 +193,7 @@ const WorkspaceAgentManagementCommand = Schema.Union([
     itemId: Text,
     userRequested: Schema.Literal(true).annotate({
       description:
-        "True only when the person explicitly asked to pause or resume this task. Never infer this from idle work, blockers, or completed turns.",
+        "True only when the person explicitly asked to pause this task. Never infer this from idle work, blockers, or completed turns.",
     }),
   }),
   Schema.Struct({
@@ -201,7 +201,7 @@ const WorkspaceAgentManagementCommand = Schema.Union([
     itemId: Text,
     userRequested: Schema.Literal(true).annotate({
       description:
-        "True only when the person explicitly asked to pause or resume this task. Never infer this from idle work, blockers, or completed turns.",
+        "True when the person explicitly asks to continue or assigns fresh work on this paused task, including a read-only audit. Status questions and discussion alone do not resume execution.",
     }),
   }),
   Schema.Struct({ type: Schema.Literal("ensureSecondMate"), itemId: Text }),
