@@ -1198,7 +1198,11 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
         const finished = yield* orchestrator.getThreadProjection(threadId);
         assert.equal(
           finished.subagents.find((row) => row.id === taskId)?.completionDelivery?.state,
-          { acknowledge: "acknowledged", accept: "delivered", "wake-policy": "claimed" }[command],
+          {
+            acknowledge: before === "waiting" ? "claimed" : "acknowledged",
+            accept: "delivered",
+            "wake-policy": "claimed",
+          }[command],
         );
         const run = finished.runs.find((candidate) => candidate.id === runId)!;
         assert.deepEqual(
@@ -1212,7 +1216,10 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
             status: after,
             completedAt: now,
             checkpointId: capture ? checkpointId : null,
-            delegatedCompletion: planned,
+            delegatedCompletion:
+              command === "acknowledge" && before === "waiting"
+                ? parent.delegatedCompletion
+                : planned,
           },
         );
       }),
@@ -3470,6 +3477,15 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         now,
       });
 
+      for (const observedByRunId of [null, runId]) {
+        yield* orchestrator.dispatch({
+          type: "delegated_task.completion-delivery.acknowledge",
+          commandId: reconcileCommandId(`stale-wait-${observedByRunId}`),
+          parentThreadId: threadId,
+          taskId: child.taskId,
+          observedByRunId,
+        });
+      }
       yield* orchestrator.recoverDelegatedTasks;
 
       const projection = yield* orchestrator.getThreadProjection(threadId);

@@ -368,6 +368,8 @@ import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
 import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
+import { ActivityShimmerOverlay } from "./chat/TimelineRowParts";
+import { observeVisibleAnimation } from "../lib/visibleAnimation";
 import { ThreadNow } from "./chat/ThreadNow";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { useDelayedStatus } from "../hooks/useDelayedStatus";
@@ -3208,8 +3210,15 @@ export default function ChatView(props: ChatViewProps) {
           </div>
         )}
         {showSecondMateWorking && (
-          <div role="status" className="chat-content-lane text-sm text-muted-foreground">
-            Second Mate is working…
+          <div className="chat-content-lane">
+            <span
+              role="status"
+              ref={observeVisibleAnimation}
+              className="relative inline-block overflow-hidden text-sm text-muted-foreground"
+            >
+              Thinking
+              <ActivityShimmerOverlay>Thinking</ActivityShimmerOverlay>
+            </span>
           </div>
         )}
         <ThreadNow

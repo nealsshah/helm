@@ -1494,7 +1494,7 @@ const make = Effect.gen(function* () {
     scope: McpThreadInvocationScope,
     taskId: NodeId,
     waitTimedOut = false,
-    acknowledgeTerminal = false,
+    acknowledgeTerminal: boolean | "delegating-turn" = false,
     acknowledgementOperation = "task-status-acknowledge",
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
     yield* requireCapability(scope);
@@ -1682,7 +1682,8 @@ const make = Effect.gen(function* () {
           parentThreadId: scope.thread.threadId,
           taskId,
           observedByRunId:
-            observingRun?.providerInstanceId === scope.thread.providerInstanceId
+            observingRun?.providerInstanceId === scope.thread.providerInstanceId &&
+            (acknowledgeTerminal !== "delegating-turn" || observingRun.id === task.runId)
               ? observingRun.id
               : null,
         })
@@ -1724,7 +1725,7 @@ const make = Effect.gen(function* () {
         completionWake: "always",
       })
       .pipe(Effect.ignoreCause({ log: true }));
-    return yield* readTask(scope, taskId, true, true);
+    return yield* readTask(scope, taskId, true, "delegating-turn");
   });
 
   /**
@@ -1735,7 +1736,7 @@ const make = Effect.gen(function* () {
     scope: McpThreadInvocationScope,
     task: OrchestrationV2Subagent,
     waitTimedOut: boolean,
-    acknowledgeTerminal: boolean,
+    acknowledgeTerminal: boolean | "delegating-turn",
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
     const status: OrchestratorMcpDelegateTaskResult["status"] =
       task.result === null
@@ -1776,7 +1777,8 @@ const make = Effect.gen(function* () {
           parentThreadId: scope.thread.threadId,
           taskId: task.id,
           observedByRunId:
-            observingRun?.providerInstanceId === scope.thread.providerInstanceId
+            observingRun?.providerInstanceId === scope.thread.providerInstanceId &&
+            (acknowledgeTerminal !== "delegating-turn" || observingRun.id === task.runId)
               ? observingRun.id
               : null,
         })
@@ -1828,7 +1830,7 @@ const make = Effect.gen(function* () {
       const afterSequence = yield* threadManagement
         .getThreadEventSequence(scope.thread.threadId)
         .pipe(Effect.mapError(streamError));
-      const initial = yield* readTask(scope, taskId, false, true);
+      const initial = yield* readTask(scope, taskId, false, "delegating-turn");
       if (endsTaskWait(initial)) {
         return Option.some(initial);
       }
@@ -1862,7 +1864,7 @@ const make = Effect.gen(function* () {
         { concurrency: "unbounded" },
       ).pipe(
         Stream.mapError(streamError),
-        Stream.mapEffect(() => readTask(scope, taskId, false, true)),
+        Stream.mapEffect(() => readTask(scope, taskId, false, "delegating-turn")),
         Stream.filter(endsTaskWait),
         Stream.runHead,
       );
@@ -2391,7 +2393,7 @@ const make = Effect.gen(function* () {
         });
         return yield* input.mode === "wait"
           ? awaitTask(scope, taskId, input.timeoutMs)
-          : readTask(scope, taskId, false, true);
+          : readTask(scope, taskId, false, "delegating-turn");
       }
       const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
       if (
@@ -2530,7 +2532,7 @@ const make = Effect.gen(function* () {
       }
 
       if (input.mode !== "wait") {
-        return yield* readTask(scope, taskId, false, true);
+        return yield* readTask(scope, taskId, false, "delegating-turn");
       }
       const timeoutMs = Math.min(
         MAX_WAIT_TIMEOUT_MS,
@@ -2573,7 +2575,7 @@ const make = Effect.gen(function* () {
             }),
           ),
         );
-      return yield* readTask(scope, taskId, Option.isNone(waited), true);
+      return yield* readTask(scope, taskId, Option.isNone(waited), "delegating-turn");
     }),
     taskStatus: Effect.fn("OrchestratorMcpService.taskStatus")(function* (callerScope, taskId) {
       const scope = yield* requireThreadScope(callerScope, "task_status");

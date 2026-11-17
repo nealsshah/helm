@@ -2563,7 +2563,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       task.completionDelivery?.state === state ||
       (command.type === "delegated_task.completion-delivery.acknowledge" &&
-        task.completionDelivery?.state === "disposed")
+        (task.completionDelivery?.state === "disposed" ||
+          !projection.runs.some((run) => run.id === command.observedByRunId && isLiveRun(run))))
     ) {
       yield* emitEvent({
         type: "subagent.updated",
